@@ -1,14 +1,12 @@
-# ✈️ Tripwise
-
-**Tripwise** je jednoduchá Python aplikace pro vyhledávání levných letenek a zájezdů.  
-Aktuálně umí prohledávat letenky od Ryanairu, později přibudou další zdroje.  
-Stačí zadat časové období a volitelně maximální cenu — Tripwise najde všechny zpáteční letenky, které odpovídají.
-
----
+✈️ Tripwise
+Tripwise is a simple Python application for searching cheap flights and trips.
+Currently, it can find flights from Ryanair — more sources will be added later.
+Just enter a date range and optionally a maximum roundtrip price — Tripwise will find all matching roundtrip flights for you.
 
 📝 TODO
-Přidat další aerolinky a zájezdy
+- Add more airlines and vacation packages
 
-- Pokročilé filtry (dny v týdnu, zavazadla)
+- Advanced filters (days of the week, baggage options)
 
-- Jednoduché rozhraní (CLI/Web)
+- Simple user interface (CLI/Web)
+
