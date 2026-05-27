@@ -1,12 +1,40 @@
+import { getServerEnv } from "@/lib/config/env";
+import { getProviderStatuses } from "@/lib/providers/status";
+import { enrichWeather } from "@/lib/weather/openMeteoService";
+import { DuffelAdapter } from "./adapters/duffelAdapter";
+import { KiwiAdapter } from "./adapters/kiwiAdapter";
 import { MockTravelAdapter } from "./adapters/mockAdapter";
+import { RyanairDeepLinkAdapter } from "./adapters/ryanairDeepLinkAdapter";
+import { SkyscannerIndicativeAdapter } from "./adapters/skyscannerIndicativeAdapter";
+import { SkyscannerLiveAdapter } from "./adapters/skyscannerLiveAdapter";
+import { errorProviderResult, type TravelSourceAdapter } from "./adapters/baseAdapter";
 import { parseTravelWish } from "./parseTravelWish";
+import { buildProviderLink } from "./providerLinks";
 import { scoreItinerary } from "./scoring";
-import type { ItineraryOption, SearchResponse, TravelSearchRequest } from "./types";
+import type { ItineraryOption, LinkType, ProviderSearchResult, SearchResponse, TravelSearchRequest } from "./types";
 
-const adapters = [new MockTravelAdapter()];
+const providerTimeoutMs = 8000;
+
+function buildAdapters(): TravelSourceAdapter[] {
+  const env = getServerEnv();
+  const adapters: TravelSourceAdapter[] = [
+    new SkyscannerLiveAdapter(env),
+    new SkyscannerIndicativeAdapter(env),
+    new DuffelAdapter(env),
+    new KiwiAdapter(env),
+    new RyanairDeepLinkAdapter(),
+  ];
+
+  if (env.enableMockProvider) adapters.push(new MockTravelAdapter());
+  return adapters;
+}
 
 function byScore(a: { score?: number }, b: { score?: number }) {
   return (b.score ?? 0) - (a.score ?? 0);
+}
+
+function byPrice(a: ItineraryOption, b: ItineraryOption) {
+  return (a.totalPrice ?? Number.MAX_SAFE_INTEGER) - (b.totalPrice ?? Number.MAX_SAFE_INTEGER);
 }
 
 function isInDateRange(trip: ItineraryOption, request: TravelSearchRequest) {
@@ -18,18 +46,18 @@ function isInDateRange(trip: ItineraryOption, request: TravelSearchRequest) {
 
 function matchesDestinationMode(trip: ItineraryOption, request: TravelSearchRequest) {
   if (request.destinationMode === "any") return true;
-  if (request.destinationMode === "warm") return trip.expectedTemperatureC >= (request.minTemperatureC ?? 18);
+  if (request.destinationMode === "warm") return (trip.expectedTemperatureC ?? 0) >= (request.minTemperatureC ?? 18);
   return trip.destinationMode === request.destinationMode;
 }
 
 function matchesHardConstraints(trip: ItineraryOption, request: TravelSearchRequest) {
   if (!request.origins.includes(trip.origin)) return false;
   if (!isInDateRange(trip, request)) return false;
-  if (request.maxBudget && trip.totalPrice > request.maxBudget) return false;
+  if (request.maxBudget && (trip.totalPrice === undefined || trip.totalPrice > request.maxBudget)) return false;
   if (request.minNights && trip.nights < request.minNights) return false;
   if (request.maxNights && trip.nights > request.maxNights) return false;
   if (!matchesDestinationMode(trip, request)) return false;
-  if (request.minTemperatureC && trip.expectedTemperatureC < request.minTemperatureC) return false;
+  if (request.minTemperatureC && (trip.expectedTemperatureC ?? 0) < request.minTemperatureC) return false;
   if (request.directOnly && !trip.direct) return false;
   if (request.weekendOnly && trip.weekendFit < 75) return false;
   return true;
@@ -39,11 +67,11 @@ function relaxationReasons(trip: ItineraryOption, request: TravelSearchRequest) 
   const reasons: string[] = [];
   if (!request.origins.includes(trip.origin)) reasons.push(`neodlétá z ${request.origins.join(" / ")}, ale z ${trip.origin}`);
   if (!isInDateRange(trip, request)) reasons.push("není v požadovaném termínu");
-  if (request.maxBudget && trip.totalPrice > request.maxBudget) reasons.push("je nad zadaným rozpočtem");
+  if (request.maxBudget && (trip.totalPrice === undefined || trip.totalPrice > request.maxBudget)) reasons.push("nemá potvrzenou cenu v rozpočtu");
   if (request.minNights && trip.nights < request.minNights) reasons.push("je kratší než požadovaná délka");
   if (request.maxNights && trip.nights > request.maxNights) reasons.push("je delší než požadovaná délka");
   if (!matchesDestinationMode(trip, request)) reasons.push("má jiný typ destinace");
-  if (request.minTemperatureC && trip.expectedTemperatureC < request.minTemperatureC) reasons.push("má nižší očekávanou teplotu");
+  if (request.minTemperatureC && (trip.expectedTemperatureC ?? 0) < request.minTemperatureC) reasons.push("má nižší očekávanou teplotu");
   if (request.directOnly && !trip.direct) reasons.push("obsahuje přestup");
   return reasons;
 }
@@ -51,8 +79,8 @@ function relaxationReasons(trip: ItineraryOption, request: TravelSearchRequest) 
 function relaxedCandidate(trip: ItineraryOption, request: TravelSearchRequest) {
   if (!isInDateRange(trip, request)) return false;
   if (!matchesDestinationMode(trip, request)) return false;
-  if (request.minTemperatureC && trip.expectedTemperatureC < request.minTemperatureC - 3) return false;
-  if (request.maxBudget && trip.totalPrice > request.maxBudget * 1.25) return false;
+  if (request.minTemperatureC && (trip.expectedTemperatureC ?? 0) < request.minTemperatureC - 3) return false;
+  if (request.maxBudget && trip.totalPrice !== undefined && trip.totalPrice > request.maxBudget * 1.25) return false;
   if (request.minNights && trip.nights < Math.max(1, request.minNights - 1)) return false;
   if (request.maxNights && trip.nights > request.maxNights + 1) return false;
   return true;
@@ -63,16 +91,14 @@ function buildRelaxationMessages(request: TravelSearchRequest, relaxedResults: I
 
   const messages = ["Nemáme přesnou shodu pro zadané podmínky."];
   if (request.origins.includes("PED") && relaxedResults.some((trip) => trip.origin !== "PED")) {
-    messages.push("Pardubice zatím nemají v mock datech dostatek spojení.");
+    messages.push("Pardubice zatím nemají v dostupných datech dostatek spojení.");
     messages.push("Zkusili jsme Prahu a Vídeň jako alternativní odlety.");
   }
   if (request.directOnly && relaxedResults.some((trip) => !trip.direct)) messages.push("Povolili jsme přestup.");
-  const minTemperatureC = request.minTemperatureC;
-  if (minTemperatureC !== undefined && relaxedResults.some((trip) => trip.expectedTemperatureC < minTemperatureC)) {
+  if (request.minTemperatureC !== undefined && relaxedResults.some((trip) => (trip.expectedTemperatureC ?? 0) < request.minTemperatureC!)) {
     messages.push("Rozšířili jsme teplotní limit.");
   }
-  const maxBudget = request.maxBudget;
-  if (maxBudget !== undefined && relaxedResults.some((trip) => trip.totalPrice > maxBudget)) {
+  if (request.maxBudget !== undefined && relaxedResults.some((trip) => trip.totalPrice !== undefined && trip.totalPrice > request.maxBudget!)) {
     messages.push("Rozšířili jsme rozpočet pro nejbližší alternativy.");
   }
   return messages;
@@ -81,23 +107,101 @@ function buildRelaxationMessages(request: TravelSearchRequest, relaxedResults: I
 function featured(results: ItineraryOption[]) {
   return {
     bestValue: results[0],
-    cheapest: [...results].sort((a, b) => a.totalPrice - b.totalPrice)[0],
+    cheapest: [...results].sort(byPrice)[0],
     mostComfortable: [...results].sort((a, b) => (b.scoreBreakdown?.comfort ?? 0) - (a.scoreBreakdown?.comfort ?? 0))[0],
     bestWeekend: [...results].sort((a, b) => b.weekendFit - a.weekendFit)[0],
   };
 }
 
+function availabilityNoteFor(trip: ItineraryOption, linkType: LinkType) {
+  if (trip.availabilityNote) return trip.availabilityNote;
+  if (trip.availabilityStatus === "verified") return "Ověřená dostupná nabídka z poskytovatele.";
+  if (trip.availabilityStatus === "indicative") return "Orientační cena z cache. Dostupnost ověř u zdroje.";
+  if (linkType === "search" || trip.availabilityStatus === "search") return "Otevře se vyhledávání u dopravce. Dostupnost konkrétního dne nemusí být garantovaná.";
+  if (trip.availabilityStatus === "mock") return "Demo výsledek z MVP dat. Cenu a dostupnost ověř u dopravce.";
+  return "Zdroj zatím neumí přesný odkaz.";
+}
+
+function normalizeProviderLink(trip: ItineraryOption): ItineraryOption {
+  const providerLink = buildProviderLink(trip);
+  const linkType = trip.linkType ?? providerLink.linkType;
+  const deepLink = trip.deepLink ?? providerLink.url;
+
+  return {
+    ...trip,
+    deepLink,
+    sourceUrl: deepLink,
+    linkType,
+    linkNote: trip.linkNote ?? providerLink.linkNote,
+    availabilityNote: availabilityNoteFor(trip, linkType),
+  };
+}
+
+function dedupeItineraries(results: ItineraryOption[]) {
+  const byKey = new Map<string, ItineraryOption>();
+
+  for (const result of results) {
+    const key = [result.origin, result.destinationAirportCode, result.dates.depart, result.dates.return, result.providerResultId ?? result.id].join("|");
+    const existing = byKey.get(key);
+    if (!existing || (result.availabilityStatus === "verified" && existing.availabilityStatus !== "verified")) {
+      byKey.set(key, result);
+    }
+  }
+
+  return [...byKey.values()];
+}
+
+async function runAdapter(adapter: TravelSourceAdapter, request: TravelSearchRequest): Promise<ProviderSearchResult> {
+  try {
+    if (!adapter.isConfigured()) {
+      return {
+        provider: adapter.name,
+        status: "skipped",
+        results: [],
+        warnings: [`${adapter.name} is not configured.`],
+      };
+    }
+
+    const timeout = new Promise<ProviderSearchResult>((resolve) => {
+      setTimeout(
+        () =>
+          resolve({
+            provider: adapter.name,
+            status: "error",
+            results: [],
+            warnings: [`${adapter.name} timed out after ${providerTimeoutMs} ms.`],
+            errorMessage: "Provider timeout",
+          }),
+        providerTimeoutMs,
+      );
+    });
+
+    return await Promise.race([adapter.searchTrips(request), timeout]);
+  } catch (error) {
+    return errorProviderResult(adapter.name, error);
+  }
+}
+
 export async function searchTrips(input: Partial<TravelSearchRequest> & { wish: string }): Promise<SearchResponse> {
   const parsedRequest = parseTravelWish(input.wish, input);
-  const rawResults = (await Promise.all(adapters.map((adapter) => adapter.searchTrips(parsedRequest)))).flat();
-  const exactResults = rawResults.filter((trip) => matchesHardConstraints(trip, parsedRequest)).map((trip) => scoreItinerary(trip, parsedRequest)).sort(byScore);
+  const adapterResults = await Promise.all(buildAdapters().map((adapter) => runAdapter(adapter, parsedRequest)));
+  const providerWarnings = adapterResults.flatMap((result) => result.warnings.map((warning) => `${result.provider}: ${warning}`));
+  const providerStatuses = getProviderStatuses();
+  const enrichedResults = await Promise.all(
+    dedupeItineraries(adapterResults.flatMap((result) => result.results).map(normalizeProviderLink)).map((trip) => enrichWeather(trip)),
+  );
+  const scoredResults = enrichedResults.map((trip) => scoreItinerary(trip, parsedRequest)).sort(byScore);
+  const exactResults = scoredResults.filter((trip) => trip.availabilityStatus === "verified" && matchesHardConstraints(trip, parsedRequest));
+  const indicativeResults = scoredResults.filter((trip) => trip.availabilityStatus === "indicative" && matchesHardConstraints(trip, parsedRequest));
+  const demoOrSearchResults = scoredResults.filter((trip) => !["verified", "indicative"].includes(trip.availabilityStatus) && matchesHardConstraints(trip, parsedRequest));
+  const primaryResults = exactResults.length > 0 ? exactResults : indicativeResults.length > 0 ? indicativeResults : demoOrSearchResults;
   const relaxedResults =
-    exactResults.length > 0
+    primaryResults.length > 0
       ? []
-      : rawResults
+      : scoredResults
           .filter((trip) => relaxedCandidate(trip, parsedRequest))
           .map((trip) => ({
-            ...scoreItinerary(trip, parsedRequest),
+            ...trip,
             relaxationReasons: relaxationReasons(trip, parsedRequest),
           }))
           .filter((trip) => (trip.relaxationReasons?.length ?? 0) > 0)
@@ -107,12 +211,15 @@ export async function searchTrips(input: Partial<TravelSearchRequest> & { wish: 
   return {
     parsedRequest,
     appliedFilters: parsedRequest,
-    exactResults,
+    exactResults: primaryResults,
+    indicativeResults,
     relaxedResults,
-    results: exactResults,
+    results: primaryResults,
+    providerStatuses,
+    providerWarnings,
     assumptions: parsedRequest.assumptions ?? [],
     unsupportedConstraints: parsedRequest.unsupportedConstraints ?? [],
     relaxationMessages: buildRelaxationMessages(parsedRequest, relaxedResults),
-    featured: featured(exactResults),
+    featured: featured(primaryResults),
   };
 }

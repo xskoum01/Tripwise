@@ -1,48 +1,103 @@
 # Tripwise
 
-Tripwise is an AI-like travel recommendation MVP for finding the best trip by price/performance, not just the cheapest flight. Users describe a flexible travel wish in Czech, adjust a few structured filters, and receive a small ranked set of explainable recommendations.
+Tripwise is a Czech travel recommendation MVP for comparing trips by value, not only by the cheapest fare. Users describe a travel wish, Tripwise parses it into structured filters, queries enabled providers, normalizes results, scores them, and explains the tradeoffs.
 
-## MVP scope
+## Provider Architecture
 
-- Natural language travel wish input
-- Simple Czech parser for budget, origins, trip length, sea/weekend/direct preferences
-- Structured filters for origins, budget, nights, baggage, direct flights, and early departures
-- Mock travel source adapter with deterministic recommendation scoring
-- Highlighted best option, category winners, comparison table, explanations, warnings, and source links
-- Saved/search history UI placeholder without persistence
+The search service uses provider adapters behind `TravelSourceAdapter`. Each adapter returns a `ProviderSearchResult` with `success`, `skipped`, or `error`, so one provider cannot break the whole search. Results are normalized into `ItineraryOption`, optionally enriched with weather, deduplicated, filtered, scored, and returned with provider statuses and warnings.
 
-## Tech stack
+Current provider modules:
 
-- Next.js App Router
-- TypeScript
-- React
-- Tailwind CSS
-- Local mock data and service modules
+- `skyscanner-live`: skeleton for Skyscanner Live Prices verified/bookable results.
+- `skyscanner-indicative`: skeleton for Skyscanner Indicative Prices inspiration results.
+- `duffel`: skeleton for Duffel offer search. Booking/order creation is not implemented.
+- `kiwi`: skeleton for official Kiwi/Tequila API access only.
+- `ryanair-deeplink`: search-link support only. It never scrapes and never verifies availability.
+- `open-meteo`: best-effort weather/climate enrichment.
+- `mock`: explicit demo provider, disabled by default.
 
-## Run locally
+## Environment Variables
+
+Create `.env.local` as needed:
+
+```bash
+SKYSCANNER_API_KEY=
+SKYSCANNER_MARKET=CZ
+SKYSCANNER_LOCALE=cs-CZ
+SKYSCANNER_CURRENCY=CZK
+
+DUFFEL_ACCESS_TOKEN=
+KIWI_API_KEY=
+
+ENABLE_MOCK_PROVIDER=false
+OPEN_METEO_ENABLED=true
+```
+
+API keys are read only on the server and are never exposed to client components.
+
+## Provider Status
+
+Check enabled/configured providers:
+
+```bash
+curl http://localhost:3000/api/providers/status
+```
+
+The endpoint explains which providers are enabled, which are missing credentials, and why mock data is or is not available.
+
+## Run Locally
 
 ```bash
 npm install
 npm run dev
 ```
 
-Then open `http://localhost:3000`.
+Open `http://localhost:3000`.
 
-## Current limitations
+Without API keys and with `ENABLE_MOCK_PROVIDER=false`, Tripwise will run normally but return no fake travel offers. The UI will show provider warnings/statuses instead of pretending demo results are real.
 
-- No real booking, payment, authentication, or database
-- No scraping
-- Search results come from local mock adapters
-- Parser is intentionally simple and deterministic
+To run with explicit demo data:
 
-## Future integration plan
+```bash
+ENABLE_MOCK_PROVIDER=true npm run dev
+```
 
-Tripwise is structured around source adapters. The UI calls only the local search API and search service; future official integrations can implement the same adapter interface:
+On Windows PowerShell:
 
-- `SkyscannerAdapter`
-- `KiwiAdapter`
-- `DuffelAdapter`
-- `AmadeusAdapter`
-- `RyanairOfficialAdapter`
+```powershell
+$env:ENABLE_MOCK_PROVIDER="true"; npm run dev
+```
 
-The next production step is to add official API credentials, normalize provider responses into `ItineraryOption`, add caching/rate-limit handling, and keep provider-specific logic out of UI components.
+## Adding Providers
+
+To add Skyscanner, set `SKYSCANNER_API_KEY`. The current adapters intentionally skip until the exact Live Prices and Indicative Prices API contracts are completed and tested.
+
+To add Duffel, set `DUFFEL_ACCESS_TOKEN`. The adapter is prepared for offer search, but booking is not implemented. Before booking in the future, a selected offer must be re-fetched because offers can become stale.
+
+To add Kiwi, set `KIWI_API_KEY`. Tripwise should use only official API responses and must not rely on unofficial scraping.
+
+## Why Ryanair Scraping Is Not Implemented
+
+Tripwise does not scrape Ryanair. Ryanair support is limited to generated search/deep links or future authorized provider results. Generated Ryanair links are marked as `search`, not verified offers, because the provider may still show no flight or changed prices for the selected date.
+
+## Result Statuses
+
+- `verified`: live/provider-confirmed result, suitable for an exact offer link.
+- `indicative`: cached or inspiration price, not a guaranteed bookable offer.
+- `search`: opens a provider search page; availability must be checked by the user.
+- `fallback`: generic provider/source link when no route/date link can be built.
+- `mock`: explicit demo data, never real availability.
+
+Price statuses:
+
+- `live`: current provider price.
+- `cached`: provider cached/indicative price.
+- `estimated`: demo or estimated price.
+- `unknown`: no reliable price.
+
+## Current Limitations
+
+- No scraping.
+- No booking, payment, authentication, or database.
+- Real provider adapters are conservative skeletons until API contracts and credentials are available.
+- Mock results are disabled by default and shown only as demo data.

@@ -16,6 +16,7 @@ function timeToHour(time: string) {
 }
 
 function scorePrice(option: ItineraryOption, request: TravelSearchRequest) {
+  if (option.totalPrice === undefined) return 45;
   const budget = request.maxBudget ?? 9000;
   if (option.totalPrice <= budget * 0.6) return 100;
   if (option.totalPrice <= budget) return clamp(100 - ((option.totalPrice - budget * 0.6) / (budget * 0.4)) * 35);
@@ -52,13 +53,13 @@ function scoreRisk(option: ItineraryOption) {
 function scoreDestinationValue(option: ItineraryOption, request: TravelSearchRequest) {
   let score = option.destinationValue;
   if (request.destinationMode !== "any" && option.destinationMode === request.destinationMode) score += 8;
-  if (request.destinationMode === "warm" && option.expectedTemperatureC >= (request.minTemperatureC ?? 18)) score += 8;
+  if (request.destinationMode === "warm" && (option.expectedTemperatureC ?? 0) >= (request.minTemperatureC ?? 18)) score += 8;
   if (request.destinationMode !== "any" && request.destinationMode !== "warm" && option.destinationMode !== request.destinationMode) score -= 14;
   return clamp(score);
 }
 
 function hasRequestedBaggage(option: ItineraryOption, requested: BaggageOption) {
-  return option.baggageIncluded.some((included) => baggageRank[included] >= baggageRank[requested]);
+  return option.baggageIncluded?.some((included) => baggageRank[included] >= baggageRank[requested]) ?? false;
 }
 
 function buildWarnings(option: ItineraryOption, request: TravelSearchRequest) {
@@ -66,8 +67,8 @@ function buildWarnings(option: ItineraryOption, request: TravelSearchRequest) {
   if (!hasRequestedBaggage(option, request.baggage)) warnings.push("Cena nezahrnuje vybrané zavazadlo");
   if (timeToHour(option.departureTime) < 6) warnings.push("Brzký ranní odlet");
   if (!option.direct && option.layoverHours && option.layoverHours >= 4) warnings.push("Delší přestup");
-  if (request.maxBudget && option.totalPrice > request.maxBudget) warnings.push("Nad zadaným rozpočtem");
-  if (request.minTemperatureC && option.expectedTemperatureC < request.minTemperatureC) warnings.push("Nižší teplota než zadání");
+  if (request.maxBudget && option.totalPrice !== undefined && option.totalPrice > request.maxBudget) warnings.push("Nad zadaným rozpočtem");
+  if (request.minTemperatureC && (option.expectedTemperatureC ?? 0) < request.minTemperatureC) warnings.push("Nižší teplota než zadání");
   return warnings;
 }
 
@@ -79,9 +80,9 @@ function monthLabel(month: number) {
 function buildExplanation(option: ItineraryOption, request: TravelSearchRequest, breakdown: ScoreBreakdown) {
   const reasons = [
     request.targetMonth && option.month === request.targetMonth ? `odpovídá měsíci ${monthLabel(option.month)}` : undefined,
-    `má očekávanou teplotu ${option.expectedTemperatureC} °C`,
+    option.expectedTemperatureC !== undefined ? `má očekávanou teplotu ${option.expectedTemperatureC} °C` : undefined,
     option.destinationMode === "sea" ? "je u moře" : undefined,
-    request.maxBudget && option.totalPrice <= request.maxBudget ? "vejde se do rozpočtu" : undefined,
+    request.maxBudget && option.totalPrice !== undefined && option.totalPrice <= request.maxBudget ? "vejde se do rozpočtu" : undefined,
     option.direct ? "má přímý let" : "má dostupnou návaznost s přestupem",
     breakdown.price >= 82 ? "má silnou cenu" : undefined,
   ].filter(Boolean);

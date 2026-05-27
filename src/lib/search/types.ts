@@ -17,6 +17,27 @@ export type OriginAirport = "PRG" | "VIE" | "BRQ" | "PED";
 export type BaggageOption = "backpack" | "cabin" | "checked";
 export type DestinationMode = "any" | "sea" | "warm" | "cityBreak";
 export type LinkType = "exact" | "search" | "fallback";
+export type ProviderName =
+  | "skyscanner-live"
+  | "skyscanner-indicative"
+  | "duffel"
+  | "kiwi"
+  | "ryanair-deeplink"
+  | "open-meteo"
+  | "mock";
+export type ProviderMode = "verified" | "indicative" | "search" | "fallback" | "enrichment" | "demo";
+export type TravelSource = "Ryanair" | "Skyscanner" | "Kiwi" | "Mock" | "Duffel" | "Tripwise demo" | (string & {});
+export type AvailabilityStatus = "verified" | "indicative" | "search" | "fallback" | "mock";
+export type PriceStatus = "live" | "cached" | "estimated" | "unknown";
+export type WeatherConfidence = "forecast" | "climate" | "unknown";
+
+export type ProviderStatus = {
+  name: ProviderName;
+  configured: boolean;
+  enabled: boolean;
+  mode: ProviderMode;
+  message?: string;
+};
 
 export type TravelSearchRequest = {
   wish: string;
@@ -48,11 +69,23 @@ export type ScoreBreakdown = {
   destinationValue: number;
 };
 
+export type FlightSegment = {
+  origin: string;
+  destination: string;
+  departureDateTime: string;
+  arrivalDateTime: string;
+  carrierName?: string;
+  flightNumber?: string;
+  durationMinutes?: number;
+};
+
 export type ItineraryOption = {
   id: string;
+  provider: ProviderName;
+  providerResultId?: string;
   destination: string;
-  country: string;
-  destinationAirportCode: AirportCode;
+  country?: string;
+  destinationAirportCode: string;
   destinationType: DestinationMode;
   destinationMode: DestinationMode;
   dates: {
@@ -60,20 +93,30 @@ export type ItineraryOption = {
     return: string;
   };
   month: number;
-  expectedTemperatureC: number;
+  expectedTemperatureC?: number;
   nights: number;
   origin: OriginAirport;
-  totalPrice: number;
-  currency: "CZK";
+  originName?: string;
+  totalPrice?: number;
+  currency?: string;
+  priceStatus: PriceStatus;
   airline: string;
-  source: "Ryanair" | "Skyscanner" | "Kiwi" | "Mock";
+  source: TravelSource;
   sourceUrl: string;
+  deepLink?: string;
   linkType: LinkType;
-  passengers: number;
-  isReturn: boolean;
+  linkNote?: string;
+  availabilityStatus: AvailabilityStatus;
+  availabilityNote?: string;
+  weatherConfidence?: WeatherConfidence;
+  passengers?: number;
+  isReturn?: boolean;
+  segments: FlightSegment[];
+  outboundSegments: FlightSegment[];
+  inboundSegments: FlightSegment[];
   departureTime: string;
   returnTime: string;
-  baggageIncluded: BaggageOption[];
+  baggageIncluded?: BaggageOption[];
   direct: boolean;
   layoverHours?: number;
   weekendFit: number;
@@ -86,12 +129,23 @@ export type ItineraryOption = {
   relaxationReasons?: string[];
 };
 
+export type ProviderSearchResult = {
+  provider: ProviderName;
+  status: "success" | "skipped" | "error";
+  results: ItineraryOption[];
+  warnings: string[];
+  errorMessage?: string;
+};
+
 export type SearchResponse = {
   parsedRequest: TravelSearchRequest;
   appliedFilters: TravelSearchRequest;
   exactResults: ItineraryOption[];
+  indicativeResults: ItineraryOption[];
   relaxedResults: ItineraryOption[];
   results: ItineraryOption[];
+  providerStatuses: ProviderStatus[];
+  providerWarnings: string[];
   assumptions: string[];
   unsupportedConstraints: string[];
   relaxationMessages: string[];

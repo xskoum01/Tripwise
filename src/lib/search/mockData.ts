@@ -1,7 +1,22 @@
-import { buildProviderLink } from "./providerLinks";
 import type { ItineraryOption } from "./types";
 
-type MockTripSeed = Omit<ItineraryOption, "isReturn" | "linkType" | "passengers" | "sourceUrl"> &
+type MockTripSeed = Omit<
+  ItineraryOption,
+  | "availabilityStatus"
+  | "availabilityNote"
+  | "deepLink"
+  | "inboundSegments"
+  | "isReturn"
+  | "linkNote"
+  | "linkType"
+  | "outboundSegments"
+  | "passengers"
+  | "priceStatus"
+  | "provider"
+  | "segments"
+  | "sourceUrl"
+  | "weatherConfidence"
+> &
   Partial<Pick<ItineraryOption, "isReturn" | "passengers">>;
 
 const mockTripSeeds: MockTripSeed[] = [
@@ -298,17 +313,58 @@ const mockTripSeeds: MockTripSeed[] = [
   },
 ];
 
-export const mockTrips: ItineraryOption[] = mockTripSeeds.map((trip) => {
-  const normalizedTrip = {
-    ...trip,
-    passengers: trip.passengers ?? 1,
-    isReturn: trip.isReturn ?? true,
-  };
-  const providerLink = buildProviderLink(normalizedTrip);
+const fallbackSourceUrls: Record<string, string> = {
+  Kiwi: "https://www.kiwi.com/",
+  Mock: "https://example.com/tripwise",
+  Ryanair: "https://www.ryanair.com/cz/cs",
+  Skyscanner: "https://www.skyscanner.net/",
+};
 
-  return {
-    ...normalizedTrip,
-    sourceUrl: providerLink.url,
-    linkType: providerLink.linkType,
-  };
-});
+export const mockTrips: ItineraryOption[] = mockTripSeeds.map((trip) => ({
+  ...trip,
+  provider: "mock",
+  passengers: trip.passengers ?? 1,
+  isReturn: trip.isReturn ?? true,
+  sourceUrl: fallbackSourceUrls[trip.source] ?? "https://www.google.com/travel/flights",
+  deepLink: fallbackSourceUrls[trip.source] ?? "https://www.google.com/travel/flights",
+  linkType: "fallback",
+  linkNote: "Demo výsledek. Zdroj neumí přesný odkaz.",
+  availabilityStatus: "mock",
+  availabilityNote: "Demo výsledek z MVP dat. Cenu a dostupnost ověř u dopravce.",
+  priceStatus: "estimated",
+  weatherConfidence: "climate",
+  outboundSegments: [
+    {
+      origin: trip.origin,
+      destination: trip.destinationAirportCode,
+      departureDateTime: `${trip.dates.depart}T${trip.departureTime}:00`,
+      arrivalDateTime: `${trip.dates.depart}T${trip.departureTime}:00`,
+      carrierName: trip.airline,
+    },
+  ],
+  inboundSegments: [
+    {
+      origin: trip.destinationAirportCode,
+      destination: trip.origin,
+      departureDateTime: `${trip.dates.return}T${trip.returnTime}:00`,
+      arrivalDateTime: `${trip.dates.return}T${trip.returnTime}:00`,
+      carrierName: trip.airline,
+    },
+  ],
+  segments: [
+    {
+      origin: trip.origin,
+      destination: trip.destinationAirportCode,
+      departureDateTime: `${trip.dates.depart}T${trip.departureTime}:00`,
+      arrivalDateTime: `${trip.dates.depart}T${trip.departureTime}:00`,
+      carrierName: trip.airline,
+    },
+    {
+      origin: trip.destinationAirportCode,
+      destination: trip.origin,
+      departureDateTime: `${trip.dates.return}T${trip.returnTime}:00`,
+      arrivalDateTime: `${trip.dates.return}T${trip.returnTime}:00`,
+      carrierName: trip.airline,
+    },
+  ],
+}));

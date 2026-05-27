@@ -1,4 +1,5 @@
 import type { DestinationMode, OriginAirport, TravelSearchRequest } from "@/lib/search/types";
+import { formatDateRangeCz, formatTripLengthCz } from "@/lib/format/date";
 
 const airportLabels: Record<OriginAirport, string> = {
   PRG: "Praha (PRG)",
@@ -21,13 +22,18 @@ function yearFromDate(date?: string) {
 }
 
 export function FilterSummary({ request, compact = false }: { request: TravelSearchRequest; compact?: boolean }) {
+  const dateRange = request.dateFrom && request.dateTo ? formatDateRangeCz(request.dateFrom, request.dateTo) : undefined;
+  const nightRange =
+    request.minNights === request.maxNights && request.minNights !== undefined
+      ? formatTripLengthCz(request.minNights)
+      : `${request.minNights ?? 1}-${formatTripLengthCz(request.maxNights ?? 14)}`;
   const parts = [
     `Odlet: ${request.origins.map((origin) => airportLabels[origin]).join(", ")}`,
-    request.targetMonth ? `Termín: ${monthLabels[request.targetMonth - 1]} ${yearFromDate(request.dateFrom)}` : undefined,
+    dateRange ?? (request.targetMonth ? `Termín: ${monthLabels[request.targetMonth - 1]} ${yearFromDate(request.dateFrom)}` : undefined),
     `Typ: ${destinationLabels[request.destinationMode]}`,
     request.minTemperatureC ? `Teplota: alespoň ${request.minTemperatureC} °C` : undefined,
     request.maxBudget ? `Rozpočet: do ${request.maxBudget.toLocaleString("cs-CZ")} Kč` : undefined,
-    `${request.minNights ?? 1}-${request.maxNights ?? 14} nocí`,
+    nightRange,
     `Pouze přímý let: ${request.directOnly ? "ano" : "ne"}`,
   ].filter(Boolean);
 

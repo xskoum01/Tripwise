@@ -5,6 +5,11 @@ import { FilterSummary } from "./FilterSummary";
 import { TripResults } from "./TripResults";
 import type { OriginAirport, SearchResponse, TravelSearchRequest } from "@/lib/search/types";
 
+type SearchErrorResponse = {
+  error?: string;
+  details?: string;
+};
+
 const originOptions: Array<{ code: OriginAirport; label: string }> = [
   { code: "PRG", label: "Praha" },
   { code: "VIE", label: "Vídeň" },
@@ -59,13 +64,30 @@ export function SearchPanel() {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(payload),
       });
-      if (!response.ok) throw new Error("Search failed");
+      if (!response.ok) {
+        let message = "Search failed";
+
+        try {
+          const errorBody = (await response.json()) as SearchErrorResponse;
+          message = errorBody.details ?? errorBody.error ?? message;
+        } catch {
+          message = response.statusText || message;
+        }
+
+        throw new Error(message);
+      }
       const nextResults = (await response.json()) as SearchResponse;
       setResults(nextResults);
       syncControls(nextResults.parsedRequest);
       setEditing(false);
-    } catch {
-      setError("Vyhledávání se nepovedlo. Zkuste to prosím znovu.");
+    } catch (error) {
+      const details = error instanceof Error ? error.message : undefined;
+      const isDevelopment = process.env.NODE_ENV !== "production";
+      setError(
+        isDevelopment && details
+          ? `Vyhledávání se nepovedlo: ${details}`
+          : "Vyhledávání se nepovedlo. Zkuste to prosím znovu.",
+      );
     } finally {
       setLoading(false);
     }

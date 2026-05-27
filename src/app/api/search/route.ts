@@ -7,7 +7,21 @@ export async function POST(request: Request) {
     const body = (await request.json()) as Partial<TravelSearchRequest> & { wish?: string };
     const response = await searchTrips({ ...body, wish: body.wish ?? "" });
     return NextResponse.json(response);
-  } catch {
-    return NextResponse.json({ error: "Search request failed" }, { status: 400 });
+  } catch (error) {
+    const isDevelopment = process.env.NODE_ENV !== "production";
+    const details = error instanceof Error ? error.message : "Unknown error";
+    const stack = error instanceof Error ? error.stack : undefined;
+
+    if (isDevelopment) {
+      console.error("Search request failed", error);
+    }
+
+    return NextResponse.json(
+      {
+        error: "Search request failed",
+        ...(isDevelopment ? { details, stack } : {}),
+      },
+      { status: 500 },
+    );
   }
 }

@@ -2,13 +2,34 @@ import { FilterSummary } from "./FilterSummary";
 import { ScoreBadge } from "./ScoreBadge";
 import { TripCard } from "./TripCard";
 import { buildScoreSummary, buildWarningSummary } from "./scoreCopy";
-import type { ItineraryOption, SearchResponse } from "@/lib/search/types";
+import { formatDateRangeCz, formatTripLengthCz } from "@/lib/format/date";
+import type { ItineraryOption, LinkType, SearchResponse } from "@/lib/search/types";
 
-const linkLabels = {
+const linkLabels: Record<LinkType, string> = {
   exact: "Otevřít nabídku",
-  search: "Otevřít hledání",
+  search: "Ověřit u zdroje",
   fallback: "Otevřít zdroj",
 };
+
+const availabilityLabels = {
+  verified: "Ověřená nabídka",
+  indicative: "Orientační",
+  search: "Vyhledávání",
+  fallback: "Fallback",
+  mock: "Demo data",
+};
+
+const priceLabels = {
+  live: "živá cena",
+  cached: "cache",
+  estimated: "odhad",
+  unknown: "neznámá",
+};
+
+function displayLinkType(trip: ItineraryOption): LinkType {
+  const linkType = trip.linkType ?? "fallback";
+  return linkType === "exact" && trip.availabilityStatus !== "verified" ? "search" : linkType;
+}
 
 export function TripResults({ data }: { data: SearchResponse }) {
   const hasExact = data.exactResults.length > 0;
@@ -19,10 +40,17 @@ export function TripResults({ data }: { data: SearchResponse }) {
     return (
       <section className="rounded-lg border border-ink/10 bg-white p-6 shadow-soft">
         <h2 className="text-xl font-black text-ink">Nic jsme nenašli</h2>
-        <p className="mt-2 text-sm text-ink/65">V mock datech není ani blízká alternativa pro zadané podmínky.</p>
+        <p className="mt-2 text-sm text-ink/65">Žádný zapnutý poskytovatel nevrátil výsledek pro zadané podmínky.</p>
         <div className="mt-4">
           <FilterSummary request={data.appliedFilters} />
         </div>
+        {data.providerWarnings.length > 0 && (
+          <div className="mt-4 rounded-lg bg-slate-50 p-3 text-xs font-semibold text-ink/60">
+            {data.providerWarnings.slice(0, 4).map((warning) => (
+              <p key={warning}>{warning}</p>
+            ))}
+          </div>
+        )}
       </section>
     );
   }
@@ -36,6 +64,17 @@ export function TripResults({ data }: { data: SearchResponse }) {
             <h2 className="text-2xl font-black text-ink">{hasExact ? "Přesné shody podle zadání" : "Nemáme přesnou shodu pro zadané podmínky"}</h2>
           </div>
           <FilterSummary request={data.appliedFilters} />
+        </div>
+        <div className="mt-4 flex flex-wrap gap-2">
+          {data.providerStatuses.map((provider) => (
+            <span
+              key={provider.name}
+              className={`rounded-full px-3 py-1 text-xs font-bold ${provider.enabled ? "bg-sea/10 text-sea" : "bg-ink/5 text-ink/50"}`}
+              title={provider.message}
+            >
+              {provider.name}: {provider.enabled ? "zapnuto" : "vypnuto"}
+            </span>
+          ))}
         </div>
       </div>
 
@@ -53,6 +92,13 @@ export function TripResults({ data }: { data: SearchResponse }) {
       {primaryTrip && <TripCard trip={primaryTrip} featured relaxed={!hasExact} />}
 
       {data.assumptions.length > 0 && <p className="rounded-lg bg-white/70 px-4 py-2 text-xs text-ink/55 shadow-soft">{data.assumptions.join(" ")}</p>}
+      {data.providerWarnings.length > 0 && (
+        <div className="rounded-lg border border-ink/10 bg-white/80 px-4 py-3 text-xs font-semibold text-ink/60 shadow-soft">
+          {data.providerWarnings.slice(0, 4).map((warning) => (
+            <p key={warning}>{warning}</p>
+          ))}
+        </div>
+      )}
 
       {hasExact && (
         <div className="grid gap-3 md:grid-cols-3">
@@ -85,13 +131,16 @@ export function TripResults({ data }: { data: SearchResponse }) {
                 <tr key={trip.id} className="align-top">
                   <td className="px-5 py-4 font-bold text-ink">{trip.destination}</td>
                   <td className="px-5 py-4 text-ink/70">
-                    {trip.dates.depart} - {trip.dates.return}
+                    {formatDateRangeCz(trip.dates.depart, trip.dates.return)}
                     <span className="block text-xs">
-                      {trip.nights} nocí z {trip.origin}
+                      {formatTripLengthCz(trip.nights)} · {trip.origin}
                     </span>
                   </td>
-                  <td className="px-5 py-4 text-ink/70">{trip.expectedTemperatureC} °C</td>
-                  <td className="px-5 py-4 font-black text-ink">{trip.totalPrice.toLocaleString("cs-CZ")} Kč</td>
+                  <td className="px-5 py-4 text-ink/70">{trip.expectedTemperatureC !== undefined ? `${trip.expectedTemperatureC} °C` : "Neznámá"}</td>
+                  <td className="px-5 py-4 font-black text-ink">
+                    {trip.totalPrice !== undefined ? `${trip.totalPrice.toLocaleString("cs-CZ")} ${trip.currency ?? "Kč"}` : "Neznámá"}
+                    <span className="block text-xs font-semibold text-ink/50">{priceLabels[trip.priceStatus]}</span>
+                  </td>
                   <td className="px-5 py-4 text-ink/70">{trip.direct ? "Přímý let" : `Přestup ${trip.layoverHours} h`}</td>
                   <td className="px-5 py-4">
                     <ScoreBadge score={trip.score ?? 0} label="score" />
@@ -100,12 +149,15 @@ export function TripResults({ data }: { data: SearchResponse }) {
                   </td>
                   <td className="px-5 py-4">
                     <a className="font-bold text-sea hover:text-ink" href={trip.sourceUrl} target="_blank" rel="noreferrer">
-                      {linkLabels[trip.linkType]}
+                      {linkLabels[displayLinkType(trip)]}
                     </a>
                     <span className="mt-1 block text-xs font-semibold text-ink/55">{trip.source}</span>
-                    {trip.linkType === "fallback" && (
+                    <span className="mt-1 block text-xs font-semibold text-ink/55">
+                      {availabilityLabels[trip.availabilityStatus]} · {trip.provider}
+                    </span>
+                    {displayLinkType(trip) === "fallback" && (
                       <span className="mt-1 block max-w-44 text-xs font-semibold text-ink/55">
-                        Zdroj zatím neumí přesný odkaz, otevře se obecné vyhledávání.
+                        {trip.linkNote ?? "Zdroj zatím neumí přesný odkaz."}
                       </span>
                     )}
                   </td>
@@ -129,7 +181,15 @@ function Bucket({ title, detail, trip }: { title: string; detail: string; trip?:
         <div>
           <h3 className="text-lg font-black text-ink">{trip.destination}</h3>
           <p className="text-sm text-ink/60">{detail}</p>
-          <p className="mt-2 text-sm font-bold text-ink">{trip.totalPrice.toLocaleString("cs-CZ")} Kč</p>
+          <p className="mt-1 text-xs font-semibold text-ink/60">
+            {formatDateRangeCz(trip.dates.depart, trip.dates.return)} · {formatTripLengthCz(trip.nights)} · {trip.origin}
+          </p>
+          <p className="mt-2 text-sm font-bold text-ink">
+            {trip.totalPrice !== undefined ? `${trip.totalPrice.toLocaleString("cs-CZ")} ${trip.currency ?? "Kč"}` : "Cena neznámá"}
+          </p>
+          <p className="mt-1 text-xs font-semibold text-ink/55">
+            {availabilityLabels[trip.availabilityStatus]} · {priceLabels[trip.priceStatus]}
+          </p>
         </div>
         <ScoreBadge score={trip.score ?? 0} label="score" />
       </div>

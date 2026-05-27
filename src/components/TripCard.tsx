@@ -1,11 +1,19 @@
 import { ScoreBadge } from "./ScoreBadge";
 import { buildScoreSummary, buildStrengths, buildWarningSummary } from "./scoreCopy";
-import type { ItineraryOption } from "@/lib/search/types";
+import { formatDateRangeCompactCz, formatDateRangeCz, formatTripLengthCz } from "@/lib/format/date";
+import type { ItineraryOption, LinkType, OriginAirport } from "@/lib/search/types";
 
-const linkLabels = {
+const linkLabels: Record<LinkType, string> = {
   exact: "Otevřít nabídku",
-  search: "Otevřít hledání",
+  search: "Ověřit u zdroje",
   fallback: "Otevřít zdroj",
+};
+
+const originLabels: Record<OriginAirport, string> = {
+  PRG: "Praha (PRG)",
+  VIE: "Vídeň (VIE)",
+  BRQ: "Brno (BRQ)",
+  PED: "Pardubice (PED)",
 };
 
 const baggageLabels = {
@@ -14,9 +22,39 @@ const baggageLabels = {
   checked: "odbavené",
 };
 
+const availabilityLabels = {
+  verified: "Ověřená dostupná nabídka",
+  indicative: "Orientační dostupnost",
+  search: "Vyhledávání u zdroje",
+  fallback: "Obecný zdroj",
+  mock: "Demo data",
+};
+
+const priceLabels = {
+  live: "živá cena",
+  cached: "orientační cena z cache",
+  estimated: "odhadovaná cena",
+  unknown: "cena neznámá",
+};
+
 export function TripCard({ trip, featured = false, relaxed = false }: { trip: ItineraryOption; featured?: boolean; relaxed?: boolean }) {
   const strengths = buildStrengths(trip);
   const warning = buildWarningSummary(trip);
+  const linkType = trip.linkType ?? "fallback";
+  const displayLinkType = linkType === "exact" && trip.availabilityStatus !== "verified" ? "search" : linkType;
+  const dateRange = formatDateRangeCz(trip.dates.depart, trip.dates.return);
+  const compactDateRange = formatDateRangeCompactCz(trip.dates.depart, trip.dates.return);
+  const tripLength = formatTripLengthCz(trip.nights);
+  const originLabel = originLabels[trip.origin] ?? trip.origin;
+  const price = trip.totalPrice !== undefined ? `${trip.totalPrice.toLocaleString("cs-CZ")} ${trip.currency ?? "Kč"}` : "Cena neznámá";
+  const temperature = trip.expectedTemperatureC !== undefined ? `${trip.expectedTemperatureC} °C` : "Neznámá";
+  const destinationTitle = trip.country ? `${trip.destination}, ${trip.country}` : trip.destination;
+  const baggage = trip.baggageIncluded?.length ? trip.baggageIncluded.map((item) => baggageLabels[item]).join(", ") : "neznámé";
+  const availabilityNote =
+    trip.availabilityNote ??
+    (displayLinkType === "search"
+      ? "Otevře se vyhledávání u dopravce. Dostupnost konkrétního dne nemusí být garantovaná."
+      : "Orientační výsledek z MVP dat. Cenu a dostupnost ověř u dopravce.");
 
   return (
     <article className={`rounded-lg border bg-white p-5 shadow-soft ${featured ? "border-sea ring-4 ring-sea/10 md:p-6" : "border-ink/10"}`}>
@@ -26,20 +64,21 @@ export function TripCard({ trip, featured = false, relaxed = false }: { trip: It
             {relaxed ? "Nejbližší alternativa" : featured ? "Nejlepší cena/výkon" : trip.source}
           </p>
           <h3 className={`${featured ? "text-3xl" : "text-2xl"} mt-1 font-black text-ink`}>
-            {trip.destination}, {trip.country}
+            {destinationTitle}
           </h3>
           <p className="mt-1 text-sm text-ink/65">
-            {trip.dates.depart} - {trip.dates.return} · {trip.nights} nocí · odlet {trip.origin}
+            {dateRange} · {tripLength} · odlet {originLabel}
           </p>
         </div>
         <ScoreBadge score={trip.score ?? 0} />
       </div>
 
-      <div className="mt-5 grid gap-3 text-sm sm:grid-cols-2 lg:grid-cols-5">
-        <Metric label="Cena celkem" value={`${trip.totalPrice.toLocaleString("cs-CZ")} Kč`} strong />
-        <Metric label="Teplota" value={`${trip.expectedTemperatureC} °C`} />
+      <div className="mt-5 grid gap-3 text-sm sm:grid-cols-2 lg:grid-cols-6">
+        <Metric label="Termín" value={compactDateRange} subtext={tripLength} strong />
+        <Metric label="Cena celkem" value={price} subtext={priceLabels[trip.priceStatus]} strong />
+        <Metric label="Teplota" value={temperature} subtext={trip.weatherConfidence === "forecast" ? "předpověď" : trip.weatherConfidence === "climate" ? "klimatický odhad" : undefined} />
         <Metric label="Let" value={`${trip.departureTime} tam · ${trip.returnTime} zpět`} />
-        <Metric label="Dopravce" value={`${trip.airline} / ${trip.source}`} />
+        <Metric label="Zdroj" value={`${trip.source}`} subtext={trip.provider} />
         <Metric label="Trasa" value={trip.direct ? "Přímý let" : `Přestup ${trip.layoverHours} h`} />
       </div>
 
@@ -60,14 +99,17 @@ export function TripCard({ trip, featured = false, relaxed = false }: { trip: It
         <div className="rounded-lg border border-coral/15 bg-coral/5 p-4">
           <p className="text-sm font-black text-coral">Klíčové upozornění</p>
           <p className="mt-2 text-sm font-semibold text-ink/75">{warning}</p>
+          <p className="mt-2 text-xs font-semibold text-ink/60">{availabilityNote}</p>
         </div>
       </div>
 
       <div className="mt-4 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
         <div className="flex flex-wrap gap-2">
           <span className="rounded-full bg-ink/5 px-3 py-1 text-xs font-semibold text-ink/70">
-            Zavazadlo: {trip.baggageIncluded.map((item) => baggageLabels[item]).join(", ")}
+            Zavazadlo: {baggage}
           </span>
+          <span className="rounded-full bg-ink/5 px-3 py-1 text-xs font-semibold text-ink/70">{availabilityLabels[trip.availabilityStatus]}</span>
+          <span className="rounded-full bg-ink/5 px-3 py-1 text-xs font-semibold text-ink/70">{priceLabels[trip.priceStatus]}</span>
           <span className="rounded-full bg-sea/10 px-3 py-1 text-xs font-semibold text-sea">{buildScoreSummary(trip)}</span>
           {trip.warnings?.map((warning) => (
             <span key={warning} className="rounded-full bg-coral/10 px-3 py-1 text-xs font-semibold text-coral">
@@ -82,24 +124,21 @@ export function TripCard({ trip, featured = false, relaxed = false }: { trip: It
             rel="noreferrer"
             className="inline-flex min-h-10 items-center justify-center rounded-lg bg-ink px-4 py-2 text-sm font-bold text-white transition hover:bg-sea"
           >
-            {linkLabels[trip.linkType]}
+            {linkLabels[displayLinkType]}
           </a>
-          {trip.linkType === "fallback" && (
-            <p className="max-w-72 text-xs font-semibold text-ink/55">
-              Zdroj zatím neumí přesný odkaz, otevře se obecné vyhledávání.
-            </p>
-          )}
+          <p className="max-w-72 text-xs font-semibold text-ink/55">{displayLinkType === "fallback" ? trip.linkNote ?? "Zdroj zatím neumí přesný odkaz." : availabilityNote}</p>
         </div>
       </div>
     </article>
   );
 }
 
-function Metric({ label, value, strong = false }: { label: string; value: string; strong?: boolean }) {
+function Metric({ label, value, subtext, strong = false }: { label: string; value: string; subtext?: string; strong?: boolean }) {
   return (
     <div className="rounded-lg border border-ink/10 bg-slate-50 p-3">
       <span className="block text-xs font-semibold text-ink/55">{label}</span>
       <span className={`mt-1 block ${strong ? "text-lg font-black text-ink" : "font-bold text-ink/80"}`}>{value}</span>
+      {subtext && <span className="mt-1 block text-xs font-semibold text-ink/50">{subtext}</span>}
     </div>
   );
 }
