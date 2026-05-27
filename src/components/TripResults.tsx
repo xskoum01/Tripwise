@@ -4,6 +4,12 @@ import { TripCard } from "./TripCard";
 import { buildScoreSummary, buildWarningSummary } from "./scoreCopy";
 import type { ItineraryOption, SearchResponse } from "@/lib/search/types";
 
+const linkLabels = {
+  exact: "Otevřít nabídku",
+  search: "Otevřít hledání",
+  fallback: "Otevřít zdroj",
+};
+
 export function TripResults({ data }: { data: SearchResponse }) {
   const hasExact = data.exactResults.length > 0;
   const displayResults = hasExact ? data.exactResults : data.relaxedResults;
@@ -94,8 +100,14 @@ export function TripResults({ data }: { data: SearchResponse }) {
                   </td>
                   <td className="px-5 py-4">
                     <a className="font-bold text-sea hover:text-ink" href={trip.sourceUrl} target="_blank" rel="noreferrer">
-                      {trip.source}
+                      {linkLabels[trip.linkType]}
                     </a>
+                    <span className="mt-1 block text-xs font-semibold text-ink/55">{trip.source}</span>
+                    {trip.linkType === "fallback" && (
+                      <span className="mt-1 block max-w-44 text-xs font-semibold text-ink/55">
+                        Zdroj zatím neumí přesný odkaz, otevře se obecné vyhledávání.
+                      </span>
+                    )}
                   </td>
                 </tr>
               ))}

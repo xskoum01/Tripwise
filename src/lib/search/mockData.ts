@@ -1,10 +1,15 @@
+import { buildProviderLink } from "./providerLinks";
 import type { ItineraryOption } from "./types";
 
-export const mockTrips: ItineraryOption[] = [
+type MockTripSeed = Omit<ItineraryOption, "isReturn" | "linkType" | "passengers" | "sourceUrl"> &
+  Partial<Pick<ItineraryOption, "isReturn" | "passengers">>;
+
+const mockTripSeeds: MockTripSeed[] = [
   {
     id: "tenerife-prg-nov-5n",
     destination: "Tenerife",
     country: "Kanárské ostrovy",
+    destinationAirportCode: "TFS",
     destinationType: "sea",
     destinationMode: "sea",
     expectedTemperatureC: 22,
@@ -16,7 +21,6 @@ export const mockTrips: ItineraryOption[] = [
     currency: "CZK",
     airline: "Smartwings",
     source: "Mock",
-    sourceUrl: "https://example.com/tripwise/tenerife-prg-nov",
     departureTime: "10:15",
     returnTime: "18:25",
     baggageIncluded: ["backpack"],
@@ -29,6 +33,7 @@ export const mockTrips: ItineraryOption[] = [
     id: "gran-canaria-vie-nov-5n",
     destination: "Gran Canaria",
     country: "Kanárské ostrovy",
+    destinationAirportCode: "LPA",
     destinationType: "sea",
     destinationMode: "sea",
     expectedTemperatureC: 23,
@@ -40,7 +45,6 @@ export const mockTrips: ItineraryOption[] = [
     currency: "CZK",
     airline: "Ryanair",
     source: "Ryanair",
-    sourceUrl: "https://www.ryanair.com/",
     departureTime: "07:50",
     returnTime: "16:40",
     baggageIncluded: ["backpack"],
@@ -53,6 +57,7 @@ export const mockTrips: ItineraryOption[] = [
     id: "malaga-prg-nov-4n",
     destination: "Málaga",
     country: "Španělsko",
+    destinationAirportCode: "AGP",
     destinationType: "sea",
     destinationMode: "sea",
     expectedTemperatureC: 18,
@@ -64,7 +69,6 @@ export const mockTrips: ItineraryOption[] = [
     currency: "CZK",
     airline: "Ryanair",
     source: "Ryanair",
-    sourceUrl: "https://www.ryanair.com/",
     departureTime: "09:35",
     returnTime: "17:10",
     baggageIncluded: ["backpack"],
@@ -77,6 +81,7 @@ export const mockTrips: ItineraryOption[] = [
     id: "madeira-vie-nov-6n",
     destination: "Madeira",
     country: "Portugalsko",
+    destinationAirportCode: "FNC",
     destinationType: "sea",
     destinationMode: "sea",
     expectedTemperatureC: 20,
@@ -88,7 +93,6 @@ export const mockTrips: ItineraryOption[] = [
     currency: "CZK",
     airline: "Austrian + TAP",
     source: "Kiwi",
-    sourceUrl: "https://www.kiwi.com/",
     departureTime: "12:40",
     returnTime: "19:00",
     baggageIncluded: ["backpack", "cabin"],
@@ -102,6 +106,7 @@ export const mockTrips: ItineraryOption[] = [
     id: "larnaca-prg-nov-4n",
     destination: "Larnaka",
     country: "Kypr",
+    destinationAirportCode: "LCA",
     destinationType: "sea",
     destinationMode: "sea",
     expectedTemperatureC: 21,
@@ -113,7 +118,6 @@ export const mockTrips: ItineraryOption[] = [
     currency: "CZK",
     airline: "Wizz Air",
     source: "Skyscanner",
-    sourceUrl: "https://www.skyscanner.net/",
     departureTime: "11:20",
     returnTime: "19:45",
     baggageIncluded: ["backpack", "cabin"],
@@ -126,6 +130,7 @@ export const mockTrips: ItineraryOption[] = [
     id: "malta-ped-nov-4n",
     destination: "Malta",
     country: "Malta",
+    destinationAirportCode: "MLA",
     destinationType: "sea",
     destinationMode: "sea",
     expectedTemperatureC: 19,
@@ -137,7 +142,6 @@ export const mockTrips: ItineraryOption[] = [
     currency: "CZK",
     airline: "Ryanair + KM Malta",
     source: "Mock",
-    sourceUrl: "https://example.com/tripwise/malta-ped-nov",
     departureTime: "08:10",
     returnTime: "21:50",
     baggageIncluded: ["backpack"],
@@ -151,6 +155,7 @@ export const mockTrips: ItineraryOption[] = [
     id: "malaga-ped-nov-4n",
     destination: "Málaga",
     country: "Španělsko",
+    destinationAirportCode: "AGP",
     destinationType: "sea",
     destinationMode: "sea",
     expectedTemperatureC: 18,
@@ -162,7 +167,6 @@ export const mockTrips: ItineraryOption[] = [
     currency: "CZK",
     airline: "Smartwings + Ryanair",
     source: "Mock",
-    sourceUrl: "https://example.com/tripwise/malaga-ped-nov",
     departureTime: "13:20",
     returnTime: "20:10",
     baggageIncluded: ["backpack"],
@@ -176,6 +180,7 @@ export const mockTrips: ItineraryOption[] = [
     id: "malaga-prg-jun-4n",
     destination: "Málaga",
     country: "Španělsko",
+    destinationAirportCode: "AGP",
     destinationType: "sea",
     destinationMode: "sea",
     expectedTemperatureC: 27,
@@ -187,7 +192,6 @@ export const mockTrips: ItineraryOption[] = [
     currency: "CZK",
     airline: "Ryanair",
     source: "Ryanair",
-    sourceUrl: "https://www.ryanair.com/",
     departureTime: "09:35",
     returnTime: "17:10",
     baggageIncluded: ["backpack"],
@@ -200,6 +204,7 @@ export const mockTrips: ItineraryOption[] = [
     id: "nice-vie-jun-3n",
     destination: "Nice",
     country: "Francie",
+    destinationAirportCode: "NCE",
     destinationType: "sea",
     destinationMode: "sea",
     expectedTemperatureC: 25,
@@ -211,7 +216,6 @@ export const mockTrips: ItineraryOption[] = [
     currency: "CZK",
     airline: "Wizz Air",
     source: "Skyscanner",
-    sourceUrl: "https://www.skyscanner.net/",
     departureTime: "11:20",
     returnTime: "19:45",
     baggageIncluded: ["backpack", "cabin"],
@@ -224,6 +228,7 @@ export const mockTrips: ItineraryOption[] = [
     id: "split-vie-jun-4n",
     destination: "Split",
     country: "Chorvatsko",
+    destinationAirportCode: "SPU",
     destinationType: "sea",
     destinationMode: "sea",
     expectedTemperatureC: 26,
@@ -235,7 +240,6 @@ export const mockTrips: ItineraryOption[] = [
     currency: "CZK",
     airline: "Austrian",
     source: "Skyscanner",
-    sourceUrl: "https://www.skyscanner.net/",
     departureTime: "05:45",
     returnTime: "14:35",
     baggageIncluded: ["backpack"],
@@ -248,6 +252,7 @@ export const mockTrips: ItineraryOption[] = [
     id: "barcelona-prg-jun-5n",
     destination: "Barcelona",
     country: "Španělsko",
+    destinationAirportCode: "BCN",
     destinationType: "cityBreak",
     destinationMode: "cityBreak",
     expectedTemperatureC: 26,
@@ -259,7 +264,6 @@ export const mockTrips: ItineraryOption[] = [
     currency: "CZK",
     airline: "Vueling",
     source: "Kiwi",
-    sourceUrl: "https://www.kiwi.com/",
     departureTime: "06:05",
     returnTime: "21:30",
     baggageIncluded: ["backpack", "cabin"],
@@ -272,6 +276,7 @@ export const mockTrips: ItineraryOption[] = [
     id: "copenhagen-prg-jun-2n",
     destination: "Kodaň",
     country: "Dánsko",
+    destinationAirportCode: "CPH",
     destinationType: "cityBreak",
     destinationMode: "cityBreak",
     expectedTemperatureC: 19,
@@ -283,7 +288,6 @@ export const mockTrips: ItineraryOption[] = [
     currency: "CZK",
     airline: "Norwegian",
     source: "Skyscanner",
-    sourceUrl: "https://www.skyscanner.net/",
     departureTime: "10:15",
     returnTime: "18:25",
     baggageIncluded: ["backpack"],
@@ -293,3 +297,18 @@ export const mockTrips: ItineraryOption[] = [
     reliability: 88,
   },
 ];
+
+export const mockTrips: ItineraryOption[] = mockTripSeeds.map((trip) => {
+  const normalizedTrip = {
+    ...trip,
+    passengers: trip.passengers ?? 1,
+    isReturn: trip.isReturn ?? true,
+  };
+  const providerLink = buildProviderLink(normalizedTrip);
+
+  return {
+    ...normalizedTrip,
+    sourceUrl: providerLink.url,
+    linkType: providerLink.linkType,
+  };
+});

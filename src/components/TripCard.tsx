@@ -2,6 +2,12 @@ import { ScoreBadge } from "./ScoreBadge";
 import { buildScoreSummary, buildStrengths, buildWarningSummary } from "./scoreCopy";
 import type { ItineraryOption } from "@/lib/search/types";
 
+const linkLabels = {
+  exact: "Otevřít nabídku",
+  search: "Otevřít hledání",
+  fallback: "Otevřít zdroj",
+};
+
 const baggageLabels = {
   backpack: "batoh",
   cabin: "kabinové",
@@ -69,14 +75,21 @@ export function TripCard({ trip, featured = false, relaxed = false }: { trip: It
             </span>
           ))}
         </div>
-        <a
-          href={trip.sourceUrl}
-          target="_blank"
-          rel="noreferrer"
-          className="inline-flex min-h-10 items-center justify-center rounded-lg bg-ink px-4 py-2 text-sm font-bold text-white transition hover:bg-sea"
-        >
-          Otevřít nabídku
-        </a>
+        <div className="flex flex-col gap-1 sm:items-end">
+          <a
+            href={trip.sourceUrl}
+            target="_blank"
+            rel="noreferrer"
+            className="inline-flex min-h-10 items-center justify-center rounded-lg bg-ink px-4 py-2 text-sm font-bold text-white transition hover:bg-sea"
+          >
+            {linkLabels[trip.linkType]}
+          </a>
+          {trip.linkType === "fallback" && (
+            <p className="max-w-72 text-xs font-semibold text-ink/55">
+              Zdroj zatím neumí přesný odkaz, otevře se obecné vyhledávání.
+            </p>
+          )}
+        </div>
       </div>
     </article>
   );

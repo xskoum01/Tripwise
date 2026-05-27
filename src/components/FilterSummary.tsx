@@ -1,6 +1,6 @@
-import type { AirportCode, DestinationMode, TravelSearchRequest } from "@/lib/search/types";
+import type { DestinationMode, OriginAirport, TravelSearchRequest } from "@/lib/search/types";
 
-const airportLabels: Record<AirportCode, string> = {
+const airportLabels: Record<OriginAirport, string> = {
   PRG: "Praha (PRG)",
   VIE: "Vídeň (VIE)",
   BRQ: "Brno (BRQ)",

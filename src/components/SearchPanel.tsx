@@ -3,9 +3,9 @@
 import { useState } from "react";
 import { FilterSummary } from "./FilterSummary";
 import { TripResults } from "./TripResults";
-import type { AirportCode, SearchResponse, TravelSearchRequest } from "@/lib/search/types";
+import type { OriginAirport, SearchResponse, TravelSearchRequest } from "@/lib/search/types";
 
-const originOptions: Array<{ code: AirportCode; label: string }> = [
+const originOptions: Array<{ code: OriginAirport; label: string }> = [
   { code: "PRG", label: "Praha" },
   { code: "VIE", label: "Vídeň" },
   { code: "BRQ", label: "Brno" },
@@ -16,7 +16,7 @@ const savedSearches = ["Moře do 7 000 Kč z Prahy", "Listopad u moře z Pardubi
 
 export function SearchPanel() {
   const [wish, setWish] = useState("Chci v červnu na 3-5 dní k moři do 7 000 Kč, odlet Praha nebo Vídeň, nechci odlet před 6 ráno.");
-  const [origins, setOrigins] = useState<AirportCode[]>(["PRG", "VIE"]);
+  const [origins, setOrigins] = useState<OriginAirport[]>(["PRG", "VIE"]);
   const [maxBudget, setMaxBudget] = useState(7000);
   const [directOnly, setDirectOnly] = useState(false);
   const [loading, setLoading] = useState(false);
@@ -33,7 +33,7 @@ export function SearchPanel() {
     setDirectOnly(request.directOnly);
   }
 
-  function toggleOrigin(code: AirportCode) {
+  function toggleOrigin(code: OriginAirport) {
     setOrigins((current) => (current.includes(code) ? current.filter((origin) => origin !== code) : [...current, code]));
   }
 

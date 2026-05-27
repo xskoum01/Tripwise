@@ -1,4 +1,4 @@
-import type { AirportCode, DestinationMode, TravelSearchRequest } from "./types";
+import type { DestinationMode, OriginAirport, TravelSearchRequest } from "./types";
 
 export const defaultSearchRequest: TravelSearchRequest = {
   wish: "",
@@ -24,7 +24,7 @@ function normalizeText(text: string) {
 }
 
 function inferOrigins(text: string) {
-  const origins = new Set<AirportCode>();
+  const origins = new Set<OriginAirport>();
   if (/\b(praha|prahy|prg)\b/.test(text)) origins.add("PRG");
   if (/\b(viden|vidne|vienna|vie)\b/.test(text)) origins.add("VIE");
   if (/\b(brno|brna|brq)\b/.test(text)) origins.add("BRQ");
