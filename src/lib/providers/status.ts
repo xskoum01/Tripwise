@@ -31,7 +31,7 @@ export function getProviderStatuses(): ProviderStatus[] {
       configured: Boolean(env.kiwiApiKey),
       enabled: Boolean(env.kiwiApiKey),
       mode: "verified",
-      message: env.kiwiApiKey ? "Kiwi API key configured." : "Set KIWI_API_KEY to enable the official Kiwi/Tequila adapter.",
+      message: env.kiwiApiKey ? "Kiwi API key configured; live search enabled." : "Set KIWI_API_KEY to enable the official Kiwi/Tequila adapter.",
     },
     {
       name: "ryanair-deeplink",
