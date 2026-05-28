@@ -1,3 +1,4 @@
+import { DuffelOfferDetail } from "./DuffelOfferDetail";
 import { FilterSummary } from "./FilterSummary";
 import { ScoreBadge } from "./ScoreBadge";
 import { TripCard } from "./TripCard";
@@ -183,7 +184,7 @@ export function TripResults({ data }: { data: SearchResponse }) {
                   </td>
                   <td className="px-5 py-4">
                     {trip.provider === "duffel" && trip.linkType === "fallback" ? (
-                      <span className="font-bold text-ink/35">Booking n/a</span>
+                      <DuffelOfferDetail trip={trip} />
                     ) : (
                       <a className="font-bold text-sea hover:text-ink" href={trip.sourceUrl} target="_blank" rel="noreferrer">
                         {linkLabels[displayLinkType(trip)]}

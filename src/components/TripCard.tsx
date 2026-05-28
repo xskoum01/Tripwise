@@ -1,3 +1,4 @@
+import { DuffelOfferDetail } from "./DuffelOfferDetail";
 import { ScoreBadge } from "./ScoreBadge";
 import { buildScoreSummary, buildStrengths, buildWarningSummary } from "./scoreCopy";
 import { formatDateRangeCompactCz, formatDateRangeCz, formatTripLengthCz } from "@/lib/format/date";
@@ -128,12 +129,7 @@ export function TripCard({ trip, featured = false, relaxed = false }: { trip: It
         </div>
         <div className="flex flex-col gap-1 sm:items-end">
           {trip.provider === "duffel" && trip.linkType === "fallback" ? (
-            <button
-              disabled
-              className="inline-flex min-h-10 cursor-not-allowed items-center justify-center rounded-lg bg-ink/30 px-4 py-2 text-sm font-bold text-white"
-            >
-              Booking zatím není implementovaný
-            </button>
+            <DuffelOfferDetail trip={trip} />
           ) : (
             <a
               href={trip.sourceUrl}
