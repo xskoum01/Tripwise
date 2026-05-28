@@ -15,6 +15,13 @@ import type { ItineraryOption, LinkType, ProviderSearchResult, SearchResponse, T
 
 const providerTimeoutMs = 8000;
 
+const unconfiguredProviderWarnings: Partial<Record<TravelSourceAdapter["name"], string>> = {
+  "skyscanner-live": "Skyscanner není nakonfigurovaný. Přidej SKYSCANNER_API_KEY do .env.local.",
+  "skyscanner-indicative": "Skyscanner není nakonfigurovaný. Přidej SKYSCANNER_API_KEY do .env.local.",
+  duffel: "Duffel není nakonfigurovaný. Přidej DUFFEL_ACCESS_TOKEN do .env.local.",
+  kiwi: "Kiwi/Tequila není nakonfigurované. Přidej KIWI_API_KEY nebo TEQUILA_API_KEY do .env.local a restartuj dev server.",
+};
+
 function buildAdapters(): TravelSourceAdapter[] {
   const env = getServerEnv();
   const adapters: TravelSourceAdapter[] = [
@@ -158,7 +165,7 @@ async function runAdapter(adapter: TravelSourceAdapter, request: TravelSearchReq
         provider: adapter.name,
         status: "skipped",
         results: [],
-        warnings: [`${adapter.name} is not configured.`],
+        warnings: [unconfiguredProviderWarnings[adapter.name] ?? `${adapter.name} is not configured.`],
       };
     }
 
@@ -187,6 +194,13 @@ export async function searchTrips(input: Partial<TravelSearchRequest> & { wish: 
   const adapterResults = await Promise.all(buildAdapters().map((adapter) => runAdapter(adapter, parsedRequest)));
   const providerWarnings = adapterResults.flatMap((result) => result.warnings.map((warning) => `${result.provider}: ${warning}`));
   const providerStatuses = getProviderStatuses();
+  const statusByName = new Map(providerStatuses.map((provider) => [provider.name, provider] as const));
+  const noActiveFlightProviders =
+    !statusByName.get("skyscanner-live")?.enabled &&
+    !statusByName.get("skyscanner-indicative")?.enabled &&
+    !statusByName.get("duffel")?.enabled &&
+    !statusByName.get("kiwi")?.enabled &&
+    !statusByName.get("mock")?.enabled;
   const enrichedResults = await Promise.all(
     dedupeItineraries(adapterResults.flatMap((result) => result.results).map(normalizeProviderLink)).map((trip) => enrichWeather(trip)),
   );
@@ -215,6 +229,7 @@ export async function searchTrips(input: Partial<TravelSearchRequest> & { wish: 
     indicativeResults,
     relaxedResults,
     results: primaryResults,
+    noActiveFlightProviders,
     providerStatuses,
     providerWarnings,
     assumptions: parsedRequest.assumptions ?? [],

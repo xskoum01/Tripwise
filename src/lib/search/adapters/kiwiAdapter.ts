@@ -177,7 +177,10 @@ export class KiwiAdapter implements TravelSourceAdapter {
 
   async searchTrips(request: TravelSearchRequest): Promise<ProviderSearchResult> {
     if (!this.isConfigured()) {
-      return skippedProviderResult(this.name, "KIWI_API_KEY is not configured; Kiwi/Tequila results skipped.");
+      return skippedProviderResult(
+        this.name,
+        "No Kiwi/Tequila key found (KIWI_API_KEY, TEQUILA_API_KEY, KIWI_TEQUILA_API_KEY); Kiwi/Tequila results skipped.",
+      );
     }
 
     const warnings: string[] = [];

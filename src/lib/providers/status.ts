@@ -3,6 +3,7 @@ import type { ProviderStatus } from "@/lib/search/types";
 
 export function getProviderStatuses(): ProviderStatus[] {
   const env = getServerEnv();
+  const isDevelopment = process.env.NODE_ENV !== "production";
 
   return [
     {
@@ -31,7 +32,15 @@ export function getProviderStatuses(): ProviderStatus[] {
       configured: Boolean(env.kiwiApiKey),
       enabled: Boolean(env.kiwiApiKey),
       mode: "verified",
-      message: env.kiwiApiKey ? "Kiwi API key configured; live search enabled." : "Set KIWI_API_KEY to enable the official Kiwi/Tequila adapter.",
+      message: env.kiwiApiKey
+        ? `Kiwi/Tequila key configured via ${env.kiwiApiKeySource}; live search enabled.`
+        : "No Kiwi/Tequila key found (KIWI_API_KEY, TEQUILA_API_KEY, KIWI_TEQUILA_API_KEY); live search disabled.",
+      ...(isDevelopment && {
+        diagnostics: {
+          keyLength: env.kiwiApiKey?.length ?? 0,
+          envVarName: env.kiwiApiKeySource,
+        },
+      }),
     },
     {
       name: "ryanair-deeplink",

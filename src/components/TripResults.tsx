@@ -37,6 +37,41 @@ export function TripResults({ data }: { data: SearchResponse }) {
   const primaryTrip = hasExact ? data.featured.bestValue : data.relaxedResults[0];
 
   if (displayResults.length === 0) {
+    if (data.noActiveFlightProviders) {
+      return (
+        <section className="rounded-lg border border-ink/10 bg-white p-6 shadow-soft">
+          <h2 className="text-xl font-black text-ink">Nejsou připojené žádné reálné zdroje</h2>
+          <p className="mt-2 text-sm text-ink/65">
+            Tripwise je teď v režimu reálných providerů, ale žádný zdroj letenek nemá nakonfigurovaný API klíč. Proto nevracíme demo
+            letenky jako reálné výsledky.
+          </p>
+
+          <div className="mt-4 grid gap-3 md:grid-cols-2">
+            <div className="rounded-lg border border-ink/10 bg-slate-50 p-4">
+              <p className="text-sm font-black text-ink">Reálná data (nastavení)</p>
+              <ul className="mt-2 list-disc space-y-1 pl-5 text-sm font-semibold text-ink/70">
+                <li>KIWI_API_KEY nebo TEQUILA_API_KEY pro Kiwi/Tequila</li>
+                <li>SKYSCANNER_API_KEY pro Skyscanner</li>
+                <li>DUFFEL_ACCESS_TOKEN pro Duffel</li>
+              </ul>
+            </div>
+            <div className="rounded-lg border border-ink/10 bg-slate-50 p-4">
+              <p className="text-sm font-black text-ink">Demo režim</p>
+              <p className="mt-2 text-sm font-semibold text-ink/70">Pro ladění UI můžeš zapnout ENABLE_MOCK_PROVIDER=true.</p>
+            </div>
+          </div>
+
+          <p className="mt-4 rounded-lg bg-mint/40 px-3 py-2 text-sm font-bold text-ink/75">Po změně .env.local restartuj npm run dev.</p>
+
+          <div className="mt-4">
+            <FilterSummary request={data.appliedFilters} />
+          </div>
+
+          <TechnicalDetails warnings={data.providerWarnings} />
+        </section>
+      );
+    }
+
     return (
       <section className="rounded-lg border border-ink/10 bg-white p-6 shadow-soft">
         <h2 className="text-xl font-black text-ink">Nic jsme nenašli</h2>
@@ -44,13 +79,7 @@ export function TripResults({ data }: { data: SearchResponse }) {
         <div className="mt-4">
           <FilterSummary request={data.appliedFilters} />
         </div>
-        {data.providerWarnings.length > 0 && (
-          <div className="mt-4 rounded-lg bg-slate-50 p-3 text-xs font-semibold text-ink/60">
-            {data.providerWarnings.slice(0, 4).map((warning) => (
-              <p key={warning}>{warning}</p>
-            ))}
-          </div>
-        )}
+        <TechnicalDetails warnings={data.providerWarnings} />
       </section>
     );
   }
@@ -92,13 +121,7 @@ export function TripResults({ data }: { data: SearchResponse }) {
       {primaryTrip && <TripCard trip={primaryTrip} featured relaxed={!hasExact} />}
 
       {data.assumptions.length > 0 && <p className="rounded-lg bg-white/70 px-4 py-2 text-xs text-ink/55 shadow-soft">{data.assumptions.join(" ")}</p>}
-      {data.providerWarnings.length > 0 && (
-        <div className="rounded-lg border border-ink/10 bg-white/80 px-4 py-3 text-xs font-semibold text-ink/60 shadow-soft">
-          {data.providerWarnings.slice(0, 4).map((warning) => (
-            <p key={warning}>{warning}</p>
-          ))}
-        </div>
-      )}
+      <TechnicalDetails warnings={data.providerWarnings} />
 
       {hasExact && (
         <div className="grid gap-3 md:grid-cols-3">
@@ -168,6 +191,21 @@ export function TripResults({ data }: { data: SearchResponse }) {
         </div>
       </div>
     </section>
+  );
+}
+
+function TechnicalDetails({ warnings }: { warnings: string[] }) {
+  if (warnings.length === 0) return null;
+
+  return (
+    <details className="rounded-lg border border-ink/10 bg-white/80 px-4 py-3 text-xs font-semibold text-ink/60 shadow-soft">
+      <summary className="cursor-pointer select-none text-sm font-black text-ink/70">Zobrazit technické detaily</summary>
+      <div className="mt-3 space-y-1">
+        {warnings.slice(0, 8).map((warning) => (
+          <p key={warning}>{warning}</p>
+        ))}
+      </div>
+    </details>
   );
 }
 

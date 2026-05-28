@@ -37,6 +37,10 @@ export type ProviderStatus = {
   enabled: boolean;
   mode: ProviderMode;
   message?: string;
+  diagnostics?: {
+    keyLength?: number;
+    envVarName?: string;
+  };
 };
 
 export type TravelSearchRequest = {
@@ -144,6 +148,7 @@ export type SearchResponse = {
   indicativeResults: ItineraryOption[];
   relaxedResults: ItineraryOption[];
   results: ItineraryOption[];
+  noActiveFlightProviders: boolean;
   providerStatuses: ProviderStatus[];
   providerWarnings: string[];
   assumptions: string[];

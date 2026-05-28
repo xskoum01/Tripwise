@@ -95,6 +95,77 @@ Price statuses:
 - `estimated`: demo or estimated price.
 - `unknown`: no reliable price.
 
+## Configuration & Troubleshooting
+
+### Adding Kiwi/Tequila API Key
+
+Tripwise supports multiple environment variable names for backward compatibility:
+
+- `KIWI_API_KEY` (recommended, current)
+- `TEQUILA_API_KEY` (alternative)
+- `KIWI_TEQUILA_API_KEY` (legacy)
+
+Add your key to `.env.local`:
+
+```bash
+KIWI_API_KEY=your-actual-key-here
+```
+
+**Important:** After modifying `.env.local`, restart the dev server:
+
+```bash
+# Stop the running dev server (Ctrl+C)
+npm run dev
+```
+
+The environment is read once at startup. Changes to `.env.local` require a restart to take effect.
+
+### Verifying Provider Configuration
+
+Check which providers are configured and active:
+
+```bash
+curl http://localhost:3000/api/providers/status
+```
+
+In development mode, the Kiwi provider status includes:
+
+```json
+{
+  "name": "kiwi",
+  "configured": true,
+  "enabled": true,
+  "message": "Kiwi/Tequila key configured via KIWI_API_KEY; live search enabled.",
+  "diagnostics": {
+    "keyLength": 32,
+    "envVarName": "KIWI_API_KEY"
+  }
+}
+```
+
+The `diagnostics` field (development only) shows which environment variable is being used and the key length, but never exposes the actual secret.
+
+### Kiwi Not Configured
+
+If Kiwi shows "not configured" but you've added a key to `.env.local`:
+
+1. Ensure the key is in one of the supported variable names (see above)
+2. Restart the dev server
+3. Verify `.env.local` is readable and has no syntax errors
+4. Verify the key is not empty (not just `KIWI_API_KEY=`)
+
+### Troubleshooting: "Nic jsme nenašli" + providers not configured
+
+If the UI shows "Nic jsme nenašli" and provider details indicate all real providers are not configured:
+
+1. Add at least one real provider key to `.env.local`:
+  - `KIWI_API_KEY` or `TEQUILA_API_KEY`
+  - `SKYSCANNER_API_KEY`
+  - `DUFFEL_ACCESS_TOKEN`
+2. Or enable demo mode for UI testing: `ENABLE_MOCK_PROVIDER=true`
+3. Restart dev server after `.env.local` changes: `npm run dev`
+4. Check provider status at `/api/providers/status`
+
 ## Current Limitations
 
 - No scraping.
