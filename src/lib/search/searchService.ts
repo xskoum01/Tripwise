@@ -230,7 +230,20 @@ export async function searchTrips(input: Partial<TravelSearchRequest> & { wish: 
   const primaryCandidates = exactResults.length > 0 ? exactResults : indicativeResults.length > 0 ? indicativeResults : demoOrSearchResults;
 
   // Post-processing: dedup similar offers, remove dominated, limit result count
-  const { results: primaryResults, diagnostics } = postProcessResults(primaryCandidates, parsedRequest);
+  let primaryResults: ItineraryOption[];
+  let diagnostics: ReturnType<typeof postProcessResults>["diagnostics"] | undefined;
+  try {
+    const processed = postProcessResults(primaryCandidates, parsedRequest);
+    primaryResults = processed.results;
+    diagnostics = processed.diagnostics;
+  } catch (err) {
+    if (process.env.NODE_ENV !== "production") {
+      console.error("[searchService] postProcessResults threw unexpectedly:", err);
+    }
+    // Fall back to unprocessed candidates so the search still returns results
+    primaryResults = primaryCandidates.slice(0, 12);
+    diagnostics = undefined;
+  }
 
   const relaxedResults =
     primaryResults.length > 0

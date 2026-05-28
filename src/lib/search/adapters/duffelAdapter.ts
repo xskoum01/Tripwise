@@ -141,6 +141,7 @@ async function fetchOfferRequest(combo: SearchCombination, token: string): Promi
   }
 
   if (response.status === 401 || response.status === 403) return { offers: [], error: "auth" };
+  if (response.status === 404) return { offers: [], error: "not_found" };
   if (response.status === 422) return { offers: [], error: "invalid_route" };
   if (!response.ok) return { offers: [], error: `http_${response.status}` };
 
@@ -315,7 +316,13 @@ export class DuffelAdapter implements TravelSourceAdapter {
         timeoutCount++;
         continue;
       }
-      // invalid_route / http_NNN: silently skip, not fatal
+      // not_found / invalid_route / http_NNN: silently skip, not fatal
+      if (error) {
+        if (process.env.NODE_ENV !== "production") {
+          console.warn(`[duffel] ${combo.origin}→${combo.destination.code}: skipped (${error})`);
+        }
+        continue;
+      }
 
       if (process.env.NODE_ENV !== "production") {
         console.info(`[duffel] ${combo.origin}→${combo.destination.code}: ${offers.length} offers`);

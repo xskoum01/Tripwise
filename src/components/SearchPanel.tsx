@@ -65,13 +65,17 @@ export function SearchPanel() {
         body: JSON.stringify(payload),
       });
       if (!response.ok) {
-        let message = "Search failed";
+        let message: string;
 
-        try {
-          const errorBody = (await response.json()) as SearchErrorResponse;
-          message = errorBody.details ?? errorBody.error ?? message;
-        } catch {
-          message = response.statusText || message;
+        if (response.status === 404) {
+          message = "API route /api/search not found. Restart the dev server (npm run dev) and try again.";
+        } else {
+          try {
+            const errorBody = (await response.json()) as SearchErrorResponse;
+            message = errorBody.details ?? errorBody.error ?? `Server error ${response.status}`;
+          } catch {
+            message = `Server error ${response.status}: ${response.statusText || "unknown"}`;
+          }
         }
 
         throw new Error(message);
