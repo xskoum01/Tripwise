@@ -9,6 +9,7 @@ import { SkyscannerIndicativeAdapter } from "./adapters/skyscannerIndicativeAdap
 import { SkyscannerLiveAdapter } from "./adapters/skyscannerLiveAdapter";
 import { errorProviderResult, type TravelSourceAdapter } from "./adapters/baseAdapter";
 import { parseTravelWish } from "./parseTravelWish";
+import { normalizeCurrency, postProcessResults } from "./postProcessResults";
 import { buildProviderLink } from "./providerLinks";
 import { scoreItinerary } from "./scoring";
 import type { ItineraryOption, LinkType, ProviderSearchResult, SearchResponse, TravelSearchRequest } from "./types";
@@ -41,7 +42,9 @@ function byScore(a: { score?: number }, b: { score?: number }) {
 }
 
 function byPrice(a: ItineraryOption, b: ItineraryOption) {
-  return (a.totalPrice ?? Number.MAX_SAFE_INTEGER) - (b.totalPrice ?? Number.MAX_SAFE_INTEGER);
+  const pa = a.priceCzk ?? a.totalPrice ?? Number.MAX_SAFE_INTEGER;
+  const pb = b.priceCzk ?? b.totalPrice ?? Number.MAX_SAFE_INTEGER;
+  return pa - pb;
 }
 
 function isInDateRange(trip: ItineraryOption, request: TravelSearchRequest) {
@@ -60,7 +63,10 @@ function matchesDestinationMode(trip: ItineraryOption, request: TravelSearchRequ
 function matchesHardConstraints(trip: ItineraryOption, request: TravelSearchRequest) {
   if (!request.origins.includes(trip.origin)) return false;
   if (!isInDateRange(trip, request)) return false;
-  if (request.maxBudget && (trip.totalPrice === undefined || trip.totalPrice > request.maxBudget)) return false;
+  if (request.maxBudget !== undefined) {
+    if (trip.priceCzk === undefined) return false; // unknown currency → strict
+    if (trip.priceCzk > request.maxBudget) return false;
+  }
   if (request.minNights && trip.nights < request.minNights) return false;
   if (request.maxNights && trip.nights > request.maxNights) return false;
   if (!matchesDestinationMode(trip, request)) return false;
@@ -74,7 +80,10 @@ function relaxationReasons(trip: ItineraryOption, request: TravelSearchRequest) 
   const reasons: string[] = [];
   if (!request.origins.includes(trip.origin)) reasons.push(`neodlétá z ${request.origins.join(" / ")}, ale z ${trip.origin}`);
   if (!isInDateRange(trip, request)) reasons.push("není v požadovaném termínu");
-  if (request.maxBudget && (trip.totalPrice === undefined || trip.totalPrice > request.maxBudget)) reasons.push("nemá potvrzenou cenu v rozpočtu");
+  if (request.maxBudget !== undefined) {
+    const price = trip.priceCzk ?? trip.totalPrice;
+    if (price !== undefined && price > request.maxBudget) reasons.push("nemá potvrzenou cenu v rozpočtu");
+  }
   if (request.minNights && trip.nights < request.minNights) reasons.push("je kratší než požadovaná délka");
   if (request.maxNights && trip.nights > request.maxNights) reasons.push("je delší než požadovaná délka");
   if (!matchesDestinationMode(trip, request)) reasons.push("má jiný typ destinace");
@@ -87,7 +96,10 @@ function relaxedCandidate(trip: ItineraryOption, request: TravelSearchRequest) {
   if (!isInDateRange(trip, request)) return false;
   if (!matchesDestinationMode(trip, request)) return false;
   if (request.minTemperatureC && (trip.expectedTemperatureC ?? 0) < request.minTemperatureC - 3) return false;
-  if (request.maxBudget && trip.totalPrice !== undefined && trip.totalPrice > request.maxBudget * 1.25) return false;
+  if (request.maxBudget !== undefined) {
+    const price = trip.priceCzk ?? trip.totalPrice;
+    if (price !== undefined && price > request.maxBudget * 1.25) return false;
+  }
   if (request.minNights && trip.nights < Math.max(1, request.minNights - 1)) return false;
   if (request.maxNights && trip.nights > request.maxNights + 1) return false;
   return true;
@@ -105,8 +117,12 @@ function buildRelaxationMessages(request: TravelSearchRequest, relaxedResults: I
   if (request.minTemperatureC !== undefined && relaxedResults.some((trip) => (trip.expectedTemperatureC ?? 0) < request.minTemperatureC!)) {
     messages.push("Rozšířili jsme teplotní limit.");
   }
-  if (request.maxBudget !== undefined && relaxedResults.some((trip) => trip.totalPrice !== undefined && trip.totalPrice > request.maxBudget!)) {
-    messages.push("Rozšířili jsme rozpočet pro nejbližší alternativy.");
+  if (request.maxBudget !== undefined) {
+    const overBudget = relaxedResults.some((trip) => {
+      const price = trip.priceCzk ?? trip.totalPrice;
+      return price !== undefined && price > request.maxBudget!;
+    });
+    if (overBudget) messages.push("Rozšířili jsme rozpočet pro nejbližší alternativy.");
   }
   return messages;
 }
@@ -201,14 +217,21 @@ export async function searchTrips(input: Partial<TravelSearchRequest> & { wish: 
     !statusByName.get("duffel")?.enabled &&
     !statusByName.get("kiwi")?.enabled &&
     !statusByName.get("mock")?.enabled;
-  const enrichedResults = await Promise.all(
-    dedupeItineraries(adapterResults.flatMap((result) => result.results).map(normalizeProviderLink)).map((trip) => enrichWeather(trip)),
-  );
+
+  // Currency normalization happens before scoring so price scoring uses CZK
+  const rawResults = dedupeItineraries(adapterResults.flatMap((result) => result.results).map(normalizeProviderLink));
+  const withCurrency = rawResults.map(normalizeCurrency);
+  const enrichedResults = await Promise.all(withCurrency.map((trip) => enrichWeather(trip)));
   const scoredResults = enrichedResults.map((trip) => scoreItinerary(trip, parsedRequest)).sort(byScore);
+
   const exactResults = scoredResults.filter((trip) => trip.availabilityStatus === "verified" && matchesHardConstraints(trip, parsedRequest));
   const indicativeResults = scoredResults.filter((trip) => trip.availabilityStatus === "indicative" && matchesHardConstraints(trip, parsedRequest));
   const demoOrSearchResults = scoredResults.filter((trip) => !["verified", "indicative"].includes(trip.availabilityStatus) && matchesHardConstraints(trip, parsedRequest));
-  const primaryResults = exactResults.length > 0 ? exactResults : indicativeResults.length > 0 ? indicativeResults : demoOrSearchResults;
+  const primaryCandidates = exactResults.length > 0 ? exactResults : indicativeResults.length > 0 ? indicativeResults : demoOrSearchResults;
+
+  // Post-processing: dedup similar offers, remove dominated, limit result count
+  const { results: primaryResults, diagnostics } = postProcessResults(primaryCandidates, parsedRequest);
+
   const relaxedResults =
     primaryResults.length > 0
       ? []
@@ -236,5 +259,6 @@ export async function searchTrips(input: Partial<TravelSearchRequest> & { wish: 
     unsupportedConstraints: parsedRequest.unsupportedConstraints ?? [],
     relaxationMessages: buildRelaxationMessages(parsedRequest, relaxedResults),
     featured: featured(primaryResults),
+    postProcessDiagnostics: diagnostics,
   };
 }

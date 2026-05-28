@@ -16,11 +16,12 @@ function timeToHour(time: string) {
 }
 
 function scorePrice(option: ItineraryOption, request: TravelSearchRequest) {
-  if (option.totalPrice === undefined) return 45;
+  const price = option.priceCzk ?? option.totalPrice;
+  if (price === undefined) return 45;
   const budget = request.maxBudget ?? 9000;
-  if (option.totalPrice <= budget * 0.6) return 100;
-  if (option.totalPrice <= budget) return clamp(100 - ((option.totalPrice - budget * 0.6) / (budget * 0.4)) * 35);
-  return clamp(58 - ((option.totalPrice - budget) / budget) * 90);
+  if (price <= budget * 0.6) return 100;
+  if (price <= budget) return clamp(100 - ((price - budget * 0.6) / (budget * 0.4)) * 35);
+  return clamp(58 - ((price - budget) / budget) * 90);
 }
 
 function scoreComfort(option: ItineraryOption, request: TravelSearchRequest) {
@@ -67,7 +68,8 @@ function buildWarnings(option: ItineraryOption, request: TravelSearchRequest) {
   if (!hasRequestedBaggage(option, request.baggage)) warnings.push("Cena nezahrnuje vybrané zavazadlo");
   if (timeToHour(option.departureTime) < 6) warnings.push("Brzký ranní odlet");
   if (!option.direct && option.layoverHours && option.layoverHours >= 4) warnings.push("Delší přestup");
-  if (request.maxBudget && option.totalPrice !== undefined && option.totalPrice > request.maxBudget) warnings.push("Nad zadaným rozpočtem");
+  const priceForBudget = option.priceCzk ?? option.totalPrice;
+  if (request.maxBudget && priceForBudget !== undefined && priceForBudget > request.maxBudget) warnings.push("Nad zadaným rozpočtem");
   if (request.minTemperatureC && (option.expectedTemperatureC ?? 0) < request.minTemperatureC) warnings.push("Nižší teplota než zadání");
   return warnings;
 }

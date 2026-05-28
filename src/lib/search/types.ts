@@ -103,6 +103,7 @@ export type ItineraryOption = {
   originName?: string;
   totalPrice?: number;
   currency?: string;
+  priceCzk?: number;
   priceStatus: PriceStatus;
   airline: string;
   source: TravelSource;
@@ -141,6 +142,22 @@ export type ProviderSearchResult = {
   errorMessage?: string;
 };
 
+export type PostProcessDiagnostics = {
+  totalFromProviders: number;
+  afterHardFilters: number;
+  afterDedup: number;
+  afterDominated: number;
+  displayed: number;
+  filteredOutCounts: {
+    overBudget: number;
+    wrongOrigin: number;
+    wrongTripLength: number;
+    tooManyTransfers: number;
+    tooCold: number;
+  };
+  unknownCurrencyCount: number;
+};
+
 export type SearchResponse = {
   parsedRequest: TravelSearchRequest;
   appliedFilters: TravelSearchRequest;
@@ -160,4 +177,5 @@ export type SearchResponse = {
     mostComfortable?: ItineraryOption;
     bestWeekend?: ItineraryOption;
   };
+  postProcessDiagnostics?: PostProcessDiagnostics;
 };

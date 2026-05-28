@@ -3,7 +3,7 @@ import { ScoreBadge } from "./ScoreBadge";
 import { TripCard } from "./TripCard";
 import { buildScoreSummary, buildWarningSummary } from "./scoreCopy";
 import { formatDateRangeCz, formatTripLengthCz } from "@/lib/format/date";
-import type { ItineraryOption, LinkType, SearchResponse } from "@/lib/search/types";
+import type { ItineraryOption, LinkType, PostProcessDiagnostics, SearchResponse } from "@/lib/search/types";
 
 const linkLabels: Record<LinkType, string> = {
   exact: "Otevřít nabídku",
@@ -131,6 +131,8 @@ export function TripResults({ data }: { data: SearchResponse }) {
         </div>
       )}
 
+      {data.postProcessDiagnostics && <DiagnosticsLine diagnostics={data.postProcessDiagnostics} />}
+
       <div className="overflow-hidden rounded-lg border border-ink/10 bg-white shadow-soft">
         <div className="border-b border-ink/10 px-5 py-3">
           <p className="text-xs font-bold uppercase tracking-wide text-sea">Další možnosti</p>
@@ -161,7 +163,16 @@ export function TripResults({ data }: { data: SearchResponse }) {
                   </td>
                   <td className="px-5 py-4 text-ink/70">{trip.expectedTemperatureC !== undefined ? `${trip.expectedTemperatureC} °C` : "Neznámá"}</td>
                   <td className="px-5 py-4 font-black text-ink">
-                    {trip.totalPrice !== undefined ? `${trip.totalPrice.toLocaleString("cs-CZ")} ${trip.currency ?? "Kč"}` : "Neznámá"}
+                    {trip.priceCzk !== undefined
+                      ? `${trip.priceCzk.toLocaleString("cs-CZ")} Kč`
+                      : trip.totalPrice !== undefined
+                        ? `${trip.totalPrice.toLocaleString("cs-CZ")} ${trip.currency ?? "Kč"}`
+                        : "Neznámá"}
+                    {trip.priceCzk !== undefined && trip.currency !== undefined && trip.currency !== "CZK" && trip.totalPrice !== undefined && (
+                      <span className="block text-xs font-normal text-ink/45">
+                        {trip.totalPrice.toLocaleString("cs-CZ", { minimumFractionDigits: 2, maximumFractionDigits: 2 })} {trip.currency}
+                      </span>
+                    )}
                     <span className="block text-xs font-semibold text-ink/50">{priceLabels[trip.priceStatus]}</span>
                   </td>
                   <td className="px-5 py-4 text-ink/70">{trip.direct ? "Přímý let" : `Přestup ${trip.layoverHours} h`}</td>
@@ -171,14 +182,18 @@ export function TripResults({ data }: { data: SearchResponse }) {
                     {trip.warnings?.[0] && <span className="mt-1 block max-w-44 text-xs font-semibold text-coral">{buildWarningSummary(trip)}</span>}
                   </td>
                   <td className="px-5 py-4">
-                    <a className="font-bold text-sea hover:text-ink" href={trip.sourceUrl} target="_blank" rel="noreferrer">
-                      {linkLabels[displayLinkType(trip)]}
-                    </a>
+                    {trip.provider === "duffel" && trip.linkType === "fallback" ? (
+                      <span className="font-bold text-ink/35">Booking n/a</span>
+                    ) : (
+                      <a className="font-bold text-sea hover:text-ink" href={trip.sourceUrl} target="_blank" rel="noreferrer">
+                        {linkLabels[displayLinkType(trip)]}
+                      </a>
+                    )}
                     <span className="mt-1 block text-xs font-semibold text-ink/55">{trip.source}</span>
                     <span className="mt-1 block text-xs font-semibold text-ink/55">
                       {availabilityLabels[trip.availabilityStatus]} · {trip.provider}
                     </span>
-                    {displayLinkType(trip) === "fallback" && (
+                    {displayLinkType(trip) === "fallback" && trip.provider !== "duffel" && (
                       <span className="mt-1 block max-w-44 text-xs font-semibold text-ink/55">
                         {trip.linkNote ?? "Zdroj zatím neumí přesný odkaz."}
                       </span>
@@ -191,6 +206,31 @@ export function TripResults({ data }: { data: SearchResponse }) {
         </div>
       </div>
     </section>
+  );
+}
+
+function DiagnosticsLine({ diagnostics }: { diagnostics: PostProcessDiagnostics }) {
+  const filtered = diagnostics.totalFromProviders - diagnostics.afterHardFilters;
+  const deduped = diagnostics.afterHardFilters - diagnostics.afterDedup;
+  const dominated = diagnostics.afterDedup - diagnostics.afterDominated;
+
+  return (
+    <details className="rounded-lg border border-ink/10 bg-white/80 px-4 py-3 text-xs font-semibold text-ink/55 shadow-soft">
+      <summary className="cursor-pointer select-none">
+        Nalezeno {diagnostics.totalFromProviders} nabídek · {filtered} odfiltrováno · {deduped + dominated} sloučeno/odstraněno · zobrazeno {diagnostics.displayed} nejlepších
+      </summary>
+      <div className="mt-3 grid gap-1 sm:grid-cols-2">
+        <p>Celkem od providerů: {diagnostics.totalFromProviders}</p>
+        <p>Po filtru rozpočtu/podmínek: {diagnostics.afterHardFilters}</p>
+        <p>Po deduplikaci: {diagnostics.afterDedup}</p>
+        <p>Po odstranění dominovaných: {diagnostics.afterDominated}</p>
+        <p>Zobrazeno: {diagnostics.displayed}</p>
+        {diagnostics.filteredOutCounts.overBudget > 0 && <p>Nad rozpočtem: {diagnostics.filteredOutCounts.overBudget}</p>}
+        {diagnostics.filteredOutCounts.wrongTripLength > 0 && <p>Špatná délka pobytu: {diagnostics.filteredOutCounts.wrongTripLength}</p>}
+        {diagnostics.filteredOutCounts.tooManyTransfers > 0 && <p>Příliš mnoho přestupů: {diagnostics.filteredOutCounts.tooManyTransfers}</p>}
+        {diagnostics.unknownCurrencyCount > 0 && <p>Neznámá měna (odstraněno): {diagnostics.unknownCurrencyCount}</p>}
+      </div>
+    </details>
   );
 }
 

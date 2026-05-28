@@ -46,7 +46,16 @@ export function TripCard({ trip, featured = false, relaxed = false }: { trip: It
   const compactDateRange = formatDateRangeCompactCz(trip.dates.depart, trip.dates.return);
   const tripLength = formatTripLengthCz(trip.nights);
   const originLabel = originLabels[trip.origin] ?? trip.origin;
-  const price = trip.totalPrice !== undefined ? `${trip.totalPrice.toLocaleString("cs-CZ")} ${trip.currency ?? "Kč"}` : "Cena neznámá";
+  const price =
+    trip.priceCzk !== undefined
+      ? `${trip.priceCzk.toLocaleString("cs-CZ")} Kč`
+      : trip.totalPrice !== undefined
+        ? `${trip.totalPrice.toLocaleString("cs-CZ")} ${trip.currency ?? "Kč"}`
+        : "Cena neznámá";
+  const originalPrice =
+    trip.priceCzk !== undefined && trip.currency !== undefined && trip.currency !== "CZK" && trip.totalPrice !== undefined
+      ? `${trip.totalPrice.toLocaleString("cs-CZ", { minimumFractionDigits: 2, maximumFractionDigits: 2 })} ${trip.currency}`
+      : undefined;
   const temperature = trip.expectedTemperatureC !== undefined ? `${trip.expectedTemperatureC} °C` : "Neznámá";
   const destinationTitle = trip.country ? `${trip.destination}, ${trip.country}` : trip.destination;
   const baggage = trip.baggageIncluded?.length ? trip.baggageIncluded.map((item) => baggageLabels[item]).join(", ") : "neznámé";
@@ -75,7 +84,7 @@ export function TripCard({ trip, featured = false, relaxed = false }: { trip: It
 
       <div className="mt-5 grid gap-3 text-sm sm:grid-cols-2 lg:grid-cols-6">
         <Metric label="Termín" value={compactDateRange} subtext={tripLength} strong />
-        <Metric label="Cena celkem" value={price} subtext={priceLabels[trip.priceStatus]} strong />
+        <Metric label="Cena celkem" value={price} subtext={originalPrice ?? priceLabels[trip.priceStatus]} strong />
         <Metric label="Teplota" value={temperature} subtext={trip.weatherConfidence === "forecast" ? "předpověď" : trip.weatherConfidence === "climate" ? "klimatický odhad" : undefined} />
         <Metric label="Let" value={`${trip.departureTime} tam · ${trip.returnTime} zpět`} />
         <Metric label="Zdroj" value={`${trip.source}`} subtext={trip.provider} />
@@ -118,14 +127,23 @@ export function TripCard({ trip, featured = false, relaxed = false }: { trip: It
           ))}
         </div>
         <div className="flex flex-col gap-1 sm:items-end">
-          <a
-            href={trip.sourceUrl}
-            target="_blank"
-            rel="noreferrer"
-            className="inline-flex min-h-10 items-center justify-center rounded-lg bg-ink px-4 py-2 text-sm font-bold text-white transition hover:bg-sea"
-          >
-            {linkLabels[displayLinkType]}
-          </a>
+          {trip.provider === "duffel" && trip.linkType === "fallback" ? (
+            <button
+              disabled
+              className="inline-flex min-h-10 cursor-not-allowed items-center justify-center rounded-lg bg-ink/30 px-4 py-2 text-sm font-bold text-white"
+            >
+              Booking zatím není implementovaný
+            </button>
+          ) : (
+            <a
+              href={trip.sourceUrl}
+              target="_blank"
+              rel="noreferrer"
+              className="inline-flex min-h-10 items-center justify-center rounded-lg bg-ink px-4 py-2 text-sm font-bold text-white transition hover:bg-sea"
+            >
+              {linkLabels[displayLinkType]}
+            </a>
+          )}
           <p className="max-w-72 text-xs font-semibold text-ink/55">{displayLinkType === "fallback" ? trip.linkNote ?? "Zdroj zatím neumí přesný odkaz." : availabilityNote}</p>
         </div>
       </div>
