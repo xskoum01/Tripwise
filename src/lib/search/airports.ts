@@ -9,6 +9,14 @@ export type AirportDefinition = {
   notes?: string;
 };
 
+export type AirportCostProfile = {
+  airportCode: string;
+  accessCostCzk: number;
+  accessTimeMinutes: number;
+  accessNote: string;
+  conveniencePenalty?: number;
+};
+
 // Origin airports in scope for personal CZ/SK/AT trip hunting.
 // Priority 1 = first choice, higher number = less convenient.
 export const ORIGIN_AIRPORTS: AirportDefinition[] = [
@@ -75,3 +83,42 @@ export const ORIGIN_AIRPORTS: AirportDefinition[] = [
 ];
 
 export const AIRPORT_BY_CODE = new Map(ORIGIN_AIRPORTS.map((a) => [a.code, a]));
+
+export const AIRPORT_COST_PROFILES: Record<string, AirportCostProfile> = {
+  PED: {
+    airportCode: "PED",
+    accessCostCzk: 100,
+    accessTimeMinutes: 20,
+    accessNote: "nejbližší letiště",
+  },
+  PRG: {
+    airportCode: "PRG",
+    accessCostCzk: 300,
+    accessTimeMinutes: 90,
+    accessNote: "dobrá dostupnost",
+  },
+  VIE: {
+    airportCode: "VIE",
+    accessCostCzk: 900,
+    accessTimeMinutes: 210,
+    accessNote: "delší cesta, ale často levnější lety",
+  },
+  BTS: {
+    airportCode: "BTS",
+    accessCostCzk: 800,
+    accessTimeMinutes: 190,
+    accessNote: "alternativa k Vídni",
+  },
+  BRQ: {
+    airportCode: "BRQ",
+    accessCostCzk: 500,
+    accessTimeMinutes: 120,
+    accessNote: "regionální alternativa",
+  },
+  OSR: {
+    airportCode: "OSR",
+    accessCostCzk: 700,
+    accessTimeMinutes: 160,
+    accessNote: "regionální alternativa",
+  },
+};

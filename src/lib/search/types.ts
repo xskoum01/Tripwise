@@ -1,3 +1,5 @@
+import type { TripCostEstimate } from "@/lib/search/tripCost";
+
 export type DatePrecision = "month" | "early-month" | "mid-month" | "late-month" | "month-transition" | "week";
 
 // Confidence level for the data source behind a result.
@@ -54,6 +56,7 @@ export type TravelSource = "Ryanair" | "Skyscanner" | "Kiwi" | "Mock" | "Duffel"
 export type AvailabilityStatus = "verified" | "indicative" | "search" | "fallback" | "mock";
 export type PriceStatus = "live" | "cached" | "estimated" | "unknown";
 export type WeatherConfidence = "forecast" | "climate" | "unknown";
+export type WeatherPreference = "no-rain" | "sunny" | "warm";
 
 export type ProviderStatus = {
   name: ProviderName;
@@ -84,6 +87,7 @@ export type TravelSearchRequest = {
   directOnly: boolean;
   weekendOnly: boolean;
   destinationMode: DestinationMode;
+  weatherPreference?: WeatherPreference;
   intent: "cheapest" | "value" | "comfort" | "weekend";
   assumptions?: string[];
   unsupportedConstraints?: string[];
@@ -124,6 +128,7 @@ export type ItineraryOption = {
   };
   month: number;
   expectedTemperatureC?: number;
+  expectedPrecipitationMmPerDay?: number;
   nights: number;
   origin: OriginAirport;
   originName?: string;
@@ -164,6 +169,8 @@ export type ItineraryOption = {
   warnings?: string[];
   relaxationReasons?: string[];
   isSandbox?: boolean;
+  tripCostEstimate?: TripCostEstimate;
+  totalTripEstimateCzk?: number;
 };
 
 export type ProviderSearchResult = {
@@ -212,4 +219,15 @@ export type SearchResponse = {
   postProcessDiagnostics?: PostProcessDiagnostics;
   sandboxResults: ItineraryOption[];
   searchOnlyResults: ItineraryOption[];
+  weatherDiagnostics?: {
+    enrichedCount: number;
+    forecastCount: number;
+    climateCount: number;
+    unknownCount: number;
+    tempPenaltyCount: number;
+    rainPenaltyCount: number;
+  };
+  tripCostDiagnostics?: {
+    estimatedCount: number;
+  };
 };

@@ -40,6 +40,163 @@ const priceLabels = {
   unknown: "cena neznámá",
 };
 
+function TripCostBreakdown({ estimate }: { estimate: NonNullable<ItineraryOption["tripCostEstimate"]> }) {
+  const confidenceBadge =
+    estimate.confidence === "medium" ? (
+      <span className="rounded-full bg-amber-100 px-2 py-0.5 text-[10px] font-semibold text-amber-700">
+        střední jistota
+      </span>
+    ) : estimate.confidence === "low" ? (
+      <span className="rounded-full bg-ink/5 px-2 py-0.5 text-[10px] font-semibold text-ink/50">
+        odhad
+      </span>
+    ) : null;
+
+  return (
+    <div className="mt-3 rounded-lg border border-ink/10 bg-white p-3 text-xs">
+      <div className="mb-1 flex items-center gap-2">
+        <span className="font-bold text-ink/70">Rozpis nákladů</span>
+        {confidenceBadge}
+      </div>
+      <ul className="grid gap-0.5 text-ink/65">
+        <li>
+          Letenka:{" "}
+          {estimate.flightPriceCzk !== undefined ? (
+            <span className="font-semibold">{estimate.flightPriceCzk.toLocaleString("cs-CZ")} Kč</span>
+          ) : (
+            <span className="italic text-ink/45">Cena letenky neznámá</span>
+          )}
+        </li>
+        {estimate.originAccessCostCzk !== undefined && (
+          <li>
+            Cesta na letiště:{" "}
+            <span className="font-semibold">+{estimate.originAccessCostCzk.toLocaleString("cs-CZ")} Kč</span>
+          </li>
+        )}
+        {estimate.destinationTransferCostCzk !== undefined && (
+          <li>
+            Transfer:{" "}
+            <span className="font-semibold">+{estimate.destinationTransferCostCzk.toLocaleString("cs-CZ")} Kč</span>
+          </li>
+        )}
+        {estimate.accommodationEstimateCzk !== undefined && (
+          <li>
+            Ubytování odhad:{" "}
+            <span className="font-semibold">+{estimate.accommodationEstimateCzk.toLocaleString("cs-CZ")} Kč</span>
+          </li>
+        )}
+        {estimate.totalEstimateCzk !== undefined && (
+          <li className="mt-1 border-t border-ink/10 pt-1 font-bold text-ink/80">
+            Celkem odhad: {estimate.totalEstimateCzk.toLocaleString("cs-CZ")} Kč
+          </li>
+        )}
+      </ul>
+      <p className="mt-1.5 text-[10px] text-ink/40">Celková cena je orientační odhad.</p>
+    </div>
+  );
+}
+
+function WeatherBadge({ temperatureC, confidence }: { temperatureC?: number; confidence?: string }) {
+  if (temperatureC !== undefined && confidence === "forecast") {
+    return (
+      <span className="rounded-full bg-sea/10 px-3 py-1 text-xs font-semibold text-sea">
+        {temperatureC}°C · předpověď
+      </span>
+    );
+  }
+  if (temperatureC !== undefined && confidence === "climate") {
+    return (
+      <span className="rounded-full bg-amber-100 px-3 py-1 text-xs font-semibold text-amber-700">
+        {temperatureC}°C · klimatický odhad
+      </span>
+    );
+  }
+  if (temperatureC !== undefined && confidence === "unknown") {
+    return (
+      <span className="rounded-full bg-ink/5 px-3 py-1 text-xs font-semibold text-ink/50">
+        {temperatureC}°C · neověřeno
+      </span>
+    );
+  }
+  if (temperatureC === undefined && confidence === "unknown") {
+    return <span className="text-xs font-semibold text-ink/45">počasí neznámé</span>;
+  }
+  return null;
+}
+
+function DisclaimerNote({ confidence }: { confidence?: string }) {
+  if (confidence === "climate") {
+    return (
+      <p className="mt-1 text-[10px] italic text-amber-700/70">
+        Klimatický odhad podle historického/modelového počasí, ne přesná předpověď.
+      </p>
+    );
+  }
+  return null;
+}
+
+function WeatherNote({ trip }: { trip: ItineraryOption }) {
+  const warnings = trip.warnings ?? [];
+
+  const tempFailWarning = warnings.find((w) => w.startsWith("Nesplňuje požadavek na teplotu"));
+  if (tempFailWarning) {
+    return (
+      <p className="mt-1 text-xs font-semibold text-coral">
+        {tempFailWarning}
+      </p>
+    );
+  }
+
+  const rainWarning = warnings.find(
+    (w) => w.startsWith("Nesplňuje požadavek bez deště") || w.startsWith("Vyšší srážky"),
+  );
+  if (rainWarning) {
+    return (
+      <p className="mt-1 text-xs font-semibold text-amber-600">
+        {rainWarning}
+      </p>
+    );
+  }
+
+  const unknownWeatherWarning = warnings.find(
+    (w) => w.startsWith("Srážky pro tento") || w.startsWith("Počasí pro tento"),
+  );
+  if (unknownWeatherWarning) {
+    return (
+      <p className="mt-1 text-xs font-semibold text-amber-600">
+        {unknownWeatherWarning}
+      </p>
+    );
+  }
+
+  const goodTemp =
+    trip.expectedTemperatureC !== undefined &&
+    trip.expectedTemperatureC >= 24 &&
+    (trip.weatherConfidence === "forecast" || trip.weatherConfidence === "climate");
+
+  const lowPrecip =
+    trip.expectedPrecipitationMmPerDay !== undefined && trip.expectedPrecipitationMmPerDay < 4;
+
+  if (goodTemp || lowPrecip) {
+    return (
+      <>
+        {goodTemp && (
+          <p className="mt-1 text-xs font-semibold text-sea">
+            Dobrá volba pro teplo: průměrně {trip.expectedTemperatureC} °C
+          </p>
+        )}
+        {lowPrecip && (
+          <p className="mt-1 text-xs font-semibold text-sea">
+            Nízké srážky: {trip.expectedPrecipitationMmPerDay} mm/den
+          </p>
+        )}
+      </>
+    );
+  }
+
+  return null;
+}
+
 export function TripCard({ trip, featured = false, relaxed = false }: { trip: ItineraryOption; featured?: boolean; relaxed?: boolean }) {
   const strengths = buildStrengths(trip);
   const warning = buildWarningSummary(trip);
@@ -59,6 +216,9 @@ export function TripCard({ trip, featured = false, relaxed = false }: { trip: It
     trip.priceCzk !== undefined && trip.currency !== undefined && trip.currency !== "CZK" && trip.totalPrice !== undefined
       ? `${trip.totalPrice.toLocaleString("cs-CZ", { minimumFractionDigits: 2, maximumFractionDigits: 2 })} ${trip.currency}`
       : undefined;
+  const totalTripEstimateCzk =
+    trip.totalTripEstimateCzk ??
+    trip.tripCostEstimate?.totalEstimateCzk;
   const temperature = trip.expectedTemperatureC !== undefined ? `${trip.expectedTemperatureC} °C` : "Neznámá";
   const destinationTitle = trip.country ? `${trip.destination}, ${trip.country}` : trip.destination;
   const baggage = trip.baggageIncluded?.length ? trip.baggageIncluded.map((item) => baggageLabels[item]).join(", ") : "neznámé";
@@ -87,8 +247,30 @@ export function TripCard({ trip, featured = false, relaxed = false }: { trip: It
 
       <div className="mt-5 grid gap-3 text-sm sm:grid-cols-2 lg:grid-cols-6">
         <Metric label="Termín" value={compactDateRange} subtext={tripLength} strong />
-        <Metric label="Cena celkem" value={price} subtext={originalPrice ?? priceLabels[trip.priceStatus]} strong />
-        <Metric label="Teplota" value={temperature} subtext={trip.weatherConfidence === "forecast" ? "předpověď" : trip.weatherConfidence === "climate" ? "klimatický odhad" : undefined} />
+        <div className="rounded-lg border border-ink/10 bg-slate-50 p-3">
+          <span className="block text-xs font-semibold text-ink/55">Cena celkem</span>
+          <span className="mt-1 block text-lg font-black text-ink">{price}</span>
+          {totalTripEstimateCzk !== undefined && (
+            <span className="mt-0.5 block text-xs font-semibold text-sea/80">
+              Celkem odhad: {totalTripEstimateCzk.toLocaleString("cs-CZ")} Kč
+            </span>
+          )}
+          <span className="mt-1 block text-xs font-semibold text-ink/50">
+            {originalPrice ?? priceLabels[trip.priceStatus]}
+          </span>
+          {trip.tripCostEstimate && (
+            <TripCostBreakdown estimate={trip.tripCostEstimate} />
+          )}
+        </div>
+        <div className="rounded-lg border border-ink/10 bg-slate-50 p-3">
+          <span className="block text-xs font-semibold text-ink/55">Teplota</span>
+          <span className="mt-1 block font-bold text-ink/80">{temperature}</span>
+          <div className="mt-2 flex flex-wrap items-center gap-1">
+            <WeatherBadge temperatureC={trip.expectedTemperatureC} confidence={trip.weatherConfidence} />
+          </div>
+          <DisclaimerNote confidence={trip.weatherConfidence} />
+          <WeatherNote trip={trip} />
+        </div>
         <Metric label="Let" value={`${trip.departureTime} tam · ${trip.returnTime} zpět`} />
         <Metric label="Zdroj" value={`${trip.source}`} subtext={trip.provider} />
         <Metric label="Trasa" value={trip.direct ? "Přímý let" : `Přestup ${trip.layoverHours} h`} />
@@ -123,6 +305,7 @@ export function TripCard({ trip, featured = false, relaxed = false }: { trip: It
           <span className="rounded-full bg-ink/5 px-3 py-1 text-xs font-semibold text-ink/70">{availabilityLabels[trip.availabilityStatus]}</span>
           <span className="rounded-full bg-ink/5 px-3 py-1 text-xs font-semibold text-ink/70">{priceLabels[trip.priceStatus]}</span>
           <span className="rounded-full bg-sea/10 px-3 py-1 text-xs font-semibold text-sea">{buildScoreSummary(trip)}</span>
+          <WeatherBadge temperatureC={trip.expectedTemperatureC} confidence={trip.weatherConfidence} />
           {trip.provider === "ryanair-unofficial" && (
             <span className="rounded-full bg-amber-100 px-3 py-1 text-xs font-semibold text-amber-700">Neoficiální zdroj</span>
           )}

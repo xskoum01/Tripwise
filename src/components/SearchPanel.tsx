@@ -5,7 +5,11 @@ import { FilterSummary } from "./FilterSummary";
 import { TripResults } from "./TripResults";
 import type { OriginAirport, SearchResponse, TravelSearchRequest } from "@/lib/search/types";
 import { useSavedSearches } from "@/lib/savedSearches/useSavedSearches";
+import { recordRun, computeRunComparison, listSavedSearches } from "@/lib/savedSearches/storage";
+import type { SavedSearchRunComparison } from "@/lib/savedSearches/storage";
+import { buildSavedSearchRun, type BatchItemStatus } from "@/lib/savedSearches/batchRunner";
 import { SavedSearches } from "./SavedSearches";
+import { BatchRunPanel } from "./BatchRunPanel";
 
 type SearchErrorResponse = {
   error?: string;
@@ -28,8 +32,10 @@ export function SearchPanel() {
   const [error, setError] = useState<string | null>(null);
   const [results, setResults] = useState<SearchResponse | null>(null);
   const [editing, setEditing] = useState(false);
+  const [runComparison, setRunComparison] = useState<SavedSearchRunComparison | null>(null);
 
-  const { searches, save, remove, update } = useSavedSearches();
+  const { searches, save, remove, refresh } = useSavedSearches();
+  const [batchStatuses, setBatchStatuses] = useState<Record<string, BatchItemStatus>>({});
   // useRef instead of useState: mutating a ref inside an effect is allowed and
   // avoids the react-hooks/set-state-in-effect lint rule. No re-render needed
   // when tracking which saved search triggered the current search.
@@ -54,20 +60,16 @@ export function SearchPanel() {
   useEffect(() => {
     const savedId = activeSavedIdRef.current;
     if (!results || !savedId) return;
-    const best = results.exactResults?.[0] ?? results.results?.[0];
-    if (best) {
-      update(savedId, {
-        lastRunAt: new Date().toISOString(),
-        lastBestPriceCzk: best.priceCzk,
-        lastBestDestination: best.destination,
-        lastBestDateRange: best.dates
-          ? `${best.dates.depart} – ${best.dates.return}`
-          : undefined,
-      });
-    }
-    // Clearing a ref inside an effect is fine — no setState involved
+
+    const runAt = new Date().toISOString();
+    const run = buildSavedSearchRun(savedId, results, runAt);
+    const existingHistory = listSavedSearches().find((s) => s.id === savedId)?.priceHistory ?? [];
+    const comparison = computeRunComparison(run, existingHistory);
+    recordRun(savedId, run);
+    refresh();
+    setRunComparison(comparison);
     activeSavedIdRef.current = null;
-  }, [results, update]);
+  }, [results, refresh]);
 
   function syncControls(request: TravelSearchRequest) {
     setOrigins(request.origins);
@@ -80,6 +82,7 @@ export function SearchPanel() {
   }
 
   async function handleSearch(wishOverride?: string) {
+    setRunComparison(null);
     setLoading(true);
     setError(null);
 
@@ -240,12 +243,65 @@ export function SearchPanel() {
         </div>
       )}
 
+      {runComparison && <RunComparisonBanner comparison={runComparison} />}
       {results && !loading && <TripResults data={results} />}
 
       <section className="mt-6">
         <h2 className="mb-3 text-sm font-bold uppercase tracking-wide text-ink/55">Uložená hledání</h2>
-        <SavedSearches searches={searches} onRun={handleRunSaved} onDelete={remove} />
+        <BatchRunPanel
+          searches={searches}
+          onComplete={refresh}
+          onStatusChange={setBatchStatuses}
+        />
+        <SavedSearches searches={searches} onRun={handleRunSaved} onDelete={remove} batchStatuses={batchStatuses} />
       </section>
+    </div>
+  );
+}
+
+function RunComparisonBanner({ comparison }: { comparison: import("@/lib/savedSearches/storage").SavedSearchRunComparison }) {
+  let text: string;
+  let colorClass: string;
+
+  switch (comparison.direction) {
+    case "down":
+      text = `Cena klesla o ${Math.abs(comparison.deltaCzk ?? 0).toLocaleString("cs-CZ")} Kč oproti minulému běhu.`;
+      colorClass = "bg-sea/10 text-sea";
+      break;
+    case "up":
+      text = `Cena stoupla o ${(comparison.deltaCzk ?? 0).toLocaleString("cs-CZ")} Kč oproti minulému běhu.`;
+      colorClass = "bg-coral/10 text-coral";
+      break;
+    case "same":
+      text = "Cena je stejná jako minule.";
+      colorClass = "bg-ink/5 text-ink/65";
+      break;
+    case "new": {
+      const parts: string[] = ["Nový cenový výsledek:"];
+      if (comparison.currentDestination) parts.push(comparison.currentDestination);
+      if (comparison.currentPriceCzk !== undefined) {
+        parts.push(`za ${comparison.currentPriceCzk.toLocaleString("cs-CZ")} Kč.`);
+      } else {
+        parts[parts.length - 1] += ".";
+      }
+      text = parts.join(" ");
+      colorClass = "bg-ink/5 text-ink/65";
+      break;
+    }
+    case "no-priced-result":
+      text = "Tentokrát jsme nenašli žádný cenový výsledek.";
+      colorClass = "bg-ink/5 text-ink/65";
+      break;
+    default:
+      text = "";
+      colorClass = "bg-ink/5 text-ink/65";
+  }
+
+  if (!text) return null;
+
+  return (
+    <div className={`p-3 rounded-lg text-sm font-semibold ${colorClass}`}>
+      {text}
     </div>
   );
 }

@@ -91,6 +91,7 @@ function ResultsTable({ results, relaxed = false }: { results: ItineraryOption[]
             <th className="px-5 py-3">Termín</th>
             <th className="px-5 py-3">Teplota</th>
             <th className="px-5 py-3">Cena</th>
+            <th className="px-5 py-3 text-[11px]">Celkem odhad</th>
             <th className="px-5 py-3">Trasa</th>
             <th className="px-5 py-3">Score</th>
             <th className="px-5 py-3">Zdroj</th>
@@ -119,6 +120,9 @@ function ResultsTable({ results, relaxed = false }: { results: ItineraryOption[]
                   </span>
                 )}
                 <span className="block text-xs font-semibold text-ink/50">{priceLabels[trip.priceStatus]}</span>
+              </td>
+              <td className="px-5 py-4 text-[11px] text-ink/70">
+                {trip.totalTripEstimateCzk !== undefined ? `${trip.totalTripEstimateCzk.toLocaleString("cs-CZ")} Kč` : "—"}
               </td>
               <td className="px-5 py-4 text-ink/70">{trip.direct ? "Přímý let" : `Přestup ${trip.layoverHours} h`}</td>
               <td className="px-5 py-4">
@@ -391,7 +395,7 @@ export function TripResults({ data }: { data: SearchResponse }) {
         </div>
       )}
 
-      {data.postProcessDiagnostics && <DiagnosticsLine diagnostics={data.postProcessDiagnostics} />}
+      {data.postProcessDiagnostics && <DiagnosticsLine diagnostics={data.postProcessDiagnostics} weatherDiagnostics={data.weatherDiagnostics} />}
 
       <div className="overflow-hidden rounded-lg border border-ink/10 bg-white shadow-soft">
         <div className="border-b border-ink/10 px-5 py-3">
@@ -407,7 +411,7 @@ export function TripResults({ data }: { data: SearchResponse }) {
   );
 }
 
-function DiagnosticsLine({ diagnostics }: { diagnostics: PostProcessDiagnostics }) {
+function DiagnosticsLine({ diagnostics, weatherDiagnostics }: { diagnostics: PostProcessDiagnostics; weatherDiagnostics?: SearchResponse["weatherDiagnostics"] }) {
   const filtered = diagnostics.totalFromProviders - diagnostics.afterHardFilters;
   const deduped = diagnostics.afterHardFilters - diagnostics.afterDedup;
   const dominated = diagnostics.afterDedup - diagnostics.afterDominated;
@@ -427,6 +431,11 @@ function DiagnosticsLine({ diagnostics }: { diagnostics: PostProcessDiagnostics 
         {diagnostics.filteredOutCounts.wrongTripLength > 0 && <p>Špatná délka pobytu: {diagnostics.filteredOutCounts.wrongTripLength}</p>}
         {diagnostics.filteredOutCounts.tooManyTransfers > 0 && <p>Příliš mnoho přestupů: {diagnostics.filteredOutCounts.tooManyTransfers}</p>}
         {diagnostics.unknownCurrencyCount > 0 && <p>Neznámá měna (odstraněno): {diagnostics.unknownCurrencyCount}</p>}
+        {weatherDiagnostics && (
+          <p className="sm:col-span-2">
+            Počasí: {weatherDiagnostics.forecastCount} prognóz · {weatherDiagnostics.climateCount} odhadů · {weatherDiagnostics.unknownCount} neznámých
+          </p>
+        )}
       </div>
     </details>
   );

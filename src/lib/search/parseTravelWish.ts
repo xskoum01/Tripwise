@@ -252,9 +252,45 @@ function inferDestinationMode(text: string): DestinationMode | undefined {
   return undefined;
 }
 
-function inferTemperature(text: string) {
-  const match = text.match(/\b(?:alespon|aspon|minimalne|min|nad)\s*(\d{1,2})\s*(?:stupnu|stupne|c|°c)?\b/);
-  return match ? Number(match[1]) : undefined;
+/**
+ * Infers a minimum temperature preference from normalized (no-diacritics) text.
+ * Matches patterns like:
+ *   - "aspon X" / "aspon X stupnu" / "aspon X °c"
+ *   - "alespon X" / "alespon X stupnu"
+ *   - "minimalne X" / "minimalne X °c"
+ *   - "min X"
+ *   - "nad X stupni" / "nad X°c"
+ */
+function inferTemperature(text: string): number | undefined {
+  const patterns = [
+    // "nad X stupni" / "nad X°c" — "nad" before number without requiring word boundary after number
+    /\bnad\s+(\d{1,2})\s*(?:stupni|stupnu|stupne|°c|c)\b/,
+    // "aspon/alespon/minimalne/min X [unit]"
+    /\b(?:alespon|aspon|minimalne|min)\s+(\d{1,2})\s*(?:stupnu|stupne|stupni|°c|c)?\b/,
+    // bare "nad X" without explicit unit (only match if followed by word boundary or end)
+    /\bnad\s+(\d{1,2})\b/,
+  ];
+  for (const pattern of patterns) {
+    const match = text.match(pattern);
+    if (match) return Number(match[1]);
+  }
+  return undefined;
+}
+
+/**
+ * Infers a general weather preference from normalized (no-diacritics) text.
+ * Returns the first matched preference string or undefined.
+ *
+ * Recognized preferences:
+ *   "no-rain"  — "bez deste" / "bez deste"
+ *   "warm"     — "kde bude teplo" / "za teplem" / "v teple"
+ *   "sunny"    — "slunecno"
+ */
+function inferWeatherPreference(text: string): string | undefined {
+  if (/\bbez\s+deste\b/.test(text)) return "no-rain";
+  if (/\b(kde\s+bude\s+teplo|za\s+teplem|v\s+teple)\b/.test(text)) return "warm";
+  if (/\bslunecno\b/.test(text)) return "sunny";
+  return undefined;
 }
 
 export function parseTravelWish(wish: string, base: Partial<TravelSearchRequest> = {}): TravelSearchRequest {
@@ -265,6 +301,7 @@ export function parseTravelWish(wish: string, base: Partial<TravelSearchRequest>
   const origins = inferOrigins(text);
   const destinationMode = inferDestinationMode(text);
   const minTemperatureC = inferTemperature(text);
+  const weatherPreference = inferWeatherPreference(text);
 
   const parsed: TravelSearchRequest = {
     ...defaultSearchRequest,
@@ -286,7 +323,14 @@ export function parseTravelWish(wish: string, base: Partial<TravelSearchRequest>
 
   if (budgetMatch) parsed.maxBudget = Number(budgetMatch[1].replace(/[\s.]/g, ""));
   if (origins.length > 0) parsed.origins = origins;
-  if (minTemperatureC !== undefined) parsed.minTemperatureC = minTemperatureC;
+
+  // Apply explicit temperature first; fall back to warm-weather baseline when
+  // the user expressed a warm-destination preference but gave no explicit threshold.
+  if (minTemperatureC !== undefined) {
+    parsed.minTemperatureC = minTemperatureC;
+  } else if (weatherPreference === "warm" || /\b(kde\s+bude\s+teplo|za\s+teplem)\b/.test(text)) {
+    parsed.minTemperatureC = 18;
+  }
 
   // Date window: try phrase-level parsing first, fall back to plain month
   const dateWindow = inferDateWindow(text);

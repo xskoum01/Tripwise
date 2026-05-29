@@ -8,21 +8,70 @@
  * TODO: compare runs – side-by-side view of results across multiple search runs.
  */
 
+import { type SourceConfidence } from "@/lib/search/types";
+
 // ---------------------------------------------------------------------------
 // Types
 // ---------------------------------------------------------------------------
+
+/**
+ * A single recorded run of a saved search.
+ * Stored newest-first in SavedSearch.priceHistory (capped at 20 entries).
+ */
+export interface SavedSearchRun {
+  id: string;
+  runAt: string;                          // ISO 8601
+  bestPriceCzk?: number;
+  bestTotalTripEstimateCzk?: number;
+  bestDestination?: string;
+  bestDateRange?: string;
+  bestProvider?: string;
+  bestAirline?: string;
+  bestSourceConfidence?: SourceConfidence;
+  /** Temperature (°C) at the best-priced destination at the time of the run. */
+  bestTemperatureC?: number;
+  /** Human-readable weather confidence label, e.g. "prognóza", "odhad", "neověřeno". */
+  bestWeatherConfidence?: string;
+  resultCount: number;
+  pricedResultCount: number;
+  searchOnlyResultCount: number;
+}
+
+export interface SavedSearchRunComparison {
+  previousPriceCzk?: number;
+  currentPriceCzk?: number;
+  deltaCzk?: number;
+  direction: "down" | "up" | "same" | "new" | "no-priced-result";
+  previousDestination?: string;
+  currentDestination?: string;
+  previousProvider?: string;
+  currentProvider?: string;
+}
 
 export interface SavedSearch {
   id: string;
   title: string;
   wish: string;
-  createdAt: string;       // ISO 8601
-  updatedAt: string;       // ISO 8601
-  lastRunAt?: string;      // ISO 8601
+  createdAt: string;                      // ISO 8601
+  updatedAt: string;                      // ISO 8601
+  lastRunAt?: string;                     // ISO 8601
   lastBestPriceCzk?: number;
+  lastBestTotalTripEstimateCzk?: number;
   lastBestDestination?: string;
   lastBestDateRange?: string;
   notes?: string;
+  // Extended last-run snapshot fields
+  lastBestProvider?: string;
+  lastBestAirline?: string;
+  lastBestSourceConfidence?: SourceConfidence;
+  lastBestAvailabilityStatus?: string;
+  lastBestPriceStatus?: string;
+  /** Temperature (°C) at the best-priced destination as of the last run. */
+  lastBestTemperatureC?: number;
+  /** Human-readable weather confidence label as of the last run, e.g. "prognóza", "odhad", "neověřeno". */
+  lastBestWeatherLabel?: string;
+  // Full run history (newest first, max 20 entries)
+  priceHistory?: SavedSearchRun[];
 }
 
 // ---------------------------------------------------------------------------
@@ -35,15 +84,34 @@ const STORAGE_KEY = "tripwise_saved_searches";
 // Internal helpers
 // ---------------------------------------------------------------------------
 
-/** Minimal type guard – every valid SavedSearch must have string id/wish/title. */
-function isSavedSearch(item: unknown): item is SavedSearch {
+/** Type guard for SavedSearchRun – checks the three mandatory fields. */
+export function isSavedSearchRun(item: unknown): item is SavedSearchRun {
   if (typeof item !== "object" || item === null) return false;
   const obj = item as Record<string, unknown>;
   return (
     typeof obj["id"] === "string" &&
-    typeof obj["wish"] === "string" &&
-    typeof obj["title"] === "string"
+    typeof obj["runAt"] === "string" &&
+    typeof obj["resultCount"] === "number"
   );
+}
+
+/** Minimal type guard – every valid SavedSearch must have string id/wish/title. */
+function isSavedSearch(item: unknown): item is SavedSearch {
+  if (typeof item !== "object" || item === null) return false;
+  const obj = item as Record<string, unknown>;
+  if (
+    typeof obj["id"] !== "string" ||
+    typeof obj["wish"] !== "string" ||
+    typeof obj["title"] !== "string"
+  ) {
+    return false;
+  }
+  // Validate priceHistory array when present
+  if ("priceHistory" in obj) {
+    if (!Array.isArray(obj["priceHistory"])) return false;
+    if (!(obj["priceHistory"] as unknown[]).every(isSavedSearchRun)) return false;
+  }
+  return true;
 }
 
 function persistAll(searches: SavedSearch[]): void {
@@ -118,6 +186,98 @@ export function updateSavedSearch(
     updatedAt: new Date().toISOString(),
   };
   persistAll(current);
+}
+
+/**
+ * Records a completed search run against a saved search.
+ *
+ * - Prepends the run to priceHistory (newest first), capping the array at 20 entries.
+ * - Promotes the run's best-result fields to the top-level last* snapshot fields.
+ * - Updates updatedAt to the run timestamp.
+ * - No-op if no saved search with the given id exists.
+ */
+export function recordRun(id: string, run: SavedSearchRun): void {
+  const current = listSavedSearches();
+  const index = current.findIndex((s) => s.id === id);
+  if (index === -1) return;
+
+  const existing = current[index];
+  const history = existing.priceHistory ?? [];
+
+  current[index] = {
+    ...existing,
+    id,
+    updatedAt: run.runAt,
+    lastRunAt: run.runAt,
+    lastBestPriceCzk: run.bestPriceCzk,
+    ...(run.bestTotalTripEstimateCzk !== undefined
+      ? { lastBestTotalTripEstimateCzk: run.bestTotalTripEstimateCzk }
+      : {}),
+    lastBestDestination: run.bestDestination,
+    lastBestDateRange: run.bestDateRange,
+    lastBestProvider: run.bestProvider,
+    lastBestAirline: run.bestAirline,
+    lastBestSourceConfidence: run.bestSourceConfidence,
+    // Promote temperature/weather fields when the run carries them
+    ...(run.bestTemperatureC !== undefined
+      ? { lastBestTemperatureC: run.bestTemperatureC }
+      : {}),
+    ...(run.bestWeatherConfidence !== undefined
+      ? { lastBestWeatherLabel: run.bestWeatherConfidence }
+      : {}),
+    priceHistory: [run, ...history].slice(0, 20),
+  };
+
+  persistAll(current);
+}
+
+/**
+ * Compares a current search run against previous runs to produce a price
+ * movement summary.
+ *
+ * - If current has no bestPriceCzk: direction "no-priced-result".
+ * - If no previous run has a bestPriceCzk: direction "new".
+ * - Otherwise: direction "down" / "up" / "same" based on deltaCzk.
+ */
+export function computeRunComparison(
+  current: SavedSearchRun,
+  previousRuns: SavedSearchRun[]
+): SavedSearchRunComparison {
+  const previousPriced = previousRuns.find(
+    (r) => r.bestPriceCzk !== undefined
+  );
+
+  if (current.bestPriceCzk === undefined) {
+    return {
+      direction: "no-priced-result",
+      currentDestination: current.bestDestination,
+      currentProvider: current.bestProvider,
+    };
+  }
+
+  if (previousPriced === undefined) {
+    return {
+      direction: "new",
+      currentPriceCzk: current.bestPriceCzk,
+      currentDestination: current.bestDestination,
+      currentProvider: current.bestProvider,
+    };
+  }
+
+  const deltaCzk = current.bestPriceCzk - previousPriced.bestPriceCzk!;
+  const direction =
+    deltaCzk < 0 ? "down" : deltaCzk > 0 ? "up" : "same";
+
+  return {
+    previousPriceCzk: previousPriced.bestPriceCzk,
+    currentPriceCzk: current.bestPriceCzk,
+    deltaCzk,
+    direction,
+    previousDestination: previousPriced.bestDestination,
+    currentDestination: current.bestDestination,
+    previousProvider: previousPriced.bestProvider,
+    currentProvider: current.bestProvider,
+  };
 }
 
 // ---------------------------------------------------------------------------
@@ -230,3 +390,22 @@ export function createSavedSearchFromWish(
     updatedAt: now,
   };
 }
+
+// ---------------------------------------------------------------------------
+// TODO: future enhancements
+// ---------------------------------------------------------------------------
+
+// TODO: price alerts – let users set a target price per saved search and send a
+//       browser notification (or email via an API route) when bestPriceCzk drops
+//       below the threshold. Requires persisting the threshold in SavedSearch and
+//       a background polling mechanism (e.g. Service Worker or server-side cron).
+
+// TODO: trend chart – expose priceHistory to the UI so a sparkline / line chart
+//       can visualise how the cheapest available fare has changed over time for
+//       a given saved search.
+
+// TODO: cross-device sync – replicate the localStorage data to a remote store
+//       (e.g. Supabase, Firestore, or a custom API route) so saved searches and
+//       price history are available on all of the user's devices. Requires an
+//       auth layer and a conflict-resolution strategy (last-write-wins is fine
+//       for most fields; priceHistory arrays should be merged by run id).

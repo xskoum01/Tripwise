@@ -14,6 +14,7 @@ import { parseTravelWish } from "./parseTravelWish";
 import { normalizeCurrency, postProcessResults } from "./postProcessResults";
 import { buildProviderLink } from "./providerLinks";
 import { scoreItinerary } from "./scoring";
+import { estimateTripTotalCost } from "@/lib/search/tripCost";
 import type { ItineraryOption, LinkType, ProviderSearchResult, SearchResponse, TravelSearchRequest } from "./types";
 
 const providerTimeoutMs = 8000;
@@ -242,7 +243,36 @@ export async function searchTrips(input: Partial<TravelSearchRequest> & { wish: 
   const rawResults = dedupeItineraries(pricedAdapterResults.map(normalizeProviderLink));
   const withCurrency = rawResults.map(normalizeCurrency);
   const enrichedResults = await Promise.all(withCurrency.map((trip) => enrichWeather(trip)));
-  const scoredResults = enrichedResults.map((trip) => scoreItinerary(trip, parsedRequest)).sort(byScore);
+
+  // Compute trip cost estimates for all results before scoring so that the
+  // score function and any downstream UI can use totalTripEstimateCzk.
+  const withTripCost = enrichedResults.map((trip) => {
+    const estimate = estimateTripTotalCost(trip);
+    return {
+      ...trip,
+      tripCostEstimate: estimate,
+      totalTripEstimateCzk: estimate.totalEstimateCzk,
+    };
+  });
+
+  const scoredResults = withTripCost.map((trip) => scoreItinerary(trip, parsedRequest)).sort(byScore);
+
+  // Weather diagnostics — computed after scoring so we can inspect all enriched results.
+  const weatherDiagnostics = {
+    enrichedCount: scoredResults.filter((t) => t.weatherConfidence !== "unknown").length,
+    forecastCount: scoredResults.filter((t) => t.weatherConfidence === "forecast").length,
+    climateCount: scoredResults.filter((t) => t.weatherConfidence === "climate").length,
+    unknownCount: scoredResults.filter((t) => t.weatherConfidence === "unknown").length,
+    tempPenaltyCount: scoredResults.filter((t) => (t.expectedTemperatureC ?? Infinity) < (parsedRequest.minTemperatureC ?? Infinity)).length,
+    rainPenaltyCount: scoredResults.filter(
+      (t) => (t.expectedPrecipitationMmPerDay ?? 0) > 4 && parsedRequest.weatherPreference === "no-rain",
+    ).length,
+  };
+
+  // Trip cost diagnostics — how many results have a resolved total estimate.
+  const tripCostDiagnostics = {
+    estimatedCount: scoredResults.filter((t) => t.totalTripEstimateCzk !== undefined).length,
+  };
 
   // Separate sandbox results (Duffel test mode) from real candidates.
   // When showDuffelTestResults is false (default), sandbox results are excluded from
@@ -302,5 +332,7 @@ export async function searchTrips(input: Partial<TravelSearchRequest> & { wish: 
     postProcessDiagnostics: diagnostics,
     sandboxResults,
     searchOnlyResults,
+    weatherDiagnostics,
+    tripCostDiagnostics,
   };
 }
