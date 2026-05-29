@@ -139,6 +139,9 @@ export type ItineraryOption = {
   linkType: LinkType;
   linkNote?: string;
   linkConfidence?: "high" | "medium" | "low";
+  linkValidationStatus?: "untested" | "manual-ok" | "manual-broken" | "auto-ok" | "auto-failed";
+  linkValidationNote?: string;
+  linkLastValidatedAt?: string;
   availabilityStatus: AvailabilityStatus;
   availabilityNote?: string;
   weatherConfidence?: WeatherConfidence;

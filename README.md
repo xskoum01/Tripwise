@@ -206,6 +206,82 @@ If the UI shows "Nic jsme nenašli" and provider details indicate all real provi
 3. Restart dev server after `.env.local` changes: `npm run dev`
 4. Check provider status at `/api/providers/status`
 
+## Manual Test Matrix — Airline Verification Links
+
+Use these test phrases to verify that search-only airline links generate correctly and open useful pages.
+Run with `npm run dev`, expand "Další zdroje k ručnímu ověření", and use `[dev] URL preview` to inspect each link.
+
+### Test A — Sea route, two origins
+
+```
+Chci v červenci na 3-5 dní k moři do 7000 Kč, odlet Praha nebo Vídeň.
+```
+
+**Expected:**
+- `targetMonth: 7`, `destinationMode: sea`, `origins: [PRG, VIE]`
+- Search-only section shows Ryanair, Wizz Air, easyJet, Smartwings, Pegasus, SunExpress and others
+- Ryanair links are search links (PRG→AGP, PRG→SPU, VIE→AGP, …)
+- Wizz Air links are search links (medium confidence)
+- Corendon and Air Cairo show homepage links
+- No result shows a price
+- Main recommendation section empty unless Ryanair unofficial is enabled
+
+**What to check per airline:**
+
+| Airline | Generated link kind | Expected URL contains | Works? |
+|---|---|---|---|
+| Ryanair | search (high) | `ryanair.com/cz/cs/trip/flights/select?originIata=PRG` | — |
+| Wizz Air | search (medium) | `wizzair.com/en-gb/booking/select-flight/PRG/` | — |
+| easyJet | search (medium) | `easyjet.com/en/cheap-flights/prg/` | — |
+| Pegasus | search (medium) | `book.flypgs.com/en/round-trip?originCode=PRG` | — |
+| Norwegian | search (medium) | `norwegian.com/en/booking/flight/search/?D_City=PRG` | — |
+| Smartwings | search (low) | `booking.smartwings.com/?from=PRG` | — |
+| SunExpress | search (low) | `sunexpress.com/en/booking/flight-search/?from=PRG` | — |
+| Corendon | homepage | `corendonairlines.com` | — |
+| Air Cairo | homepage | `aircairo.com` | — |
+
+---
+
+### Test B — Sea route, three origins including BTS
+
+```
+Chci na přelomu června a července na 4-6 dní k moři, odlet Praha, Vídeň nebo Bratislava.
+```
+
+**Expected:**
+- `datePrecision: month-transition`, `dateFrom: ~2026-06-24`, `dateTo: ~2026-07-07`
+- `origins: [PRG, VIE, BTS]`
+- BTS should appear in some Ryanair and Wizz Air links
+- Destination mode sea → Smartwings, SunExpress, Pegasus links relevant
+- No price in search-only section
+
+---
+
+### Test C — City break, single origin BTS
+
+```
+Chci začátkem července city break z Bratislavy.
+```
+
+**Expected:**
+- `datePrecision: early-month`, `dateFrom: ~2026-07-01`, `dateTo: ~2026-07-10`
+- `origins: [BTS]`, `destinationMode: cityBreak`
+- BTS origin parsed correctly (not PRG/VIE default)
+- Ryanair and Wizz Air links for BTS→FCO, BTS→BCN, etc.
+- easyJet, airBaltic, Norwegian links if city-break route candidates match
+
+---
+
+### How to update after testing
+
+1. Open `src/lib/search/airlineLinkValidation.ts`
+2. For each airline tested, update `validationStatus` to `"manual-ok"` or `"manual-broken"`
+3. Set `lastValidatedAt` to today's date (YYYY-MM-DD)
+4. Add a `validationNote` describing what you observed
+5. If `manual-broken`: the builder automatically falls back to homepage — no further code change needed
+
+---
+
 ## Future Provider Backlog
 
 The following providers are on the personal-use backlog. None are implemented yet. Scraping, browser automation, or CAPTCHA bypass will never be used.

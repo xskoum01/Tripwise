@@ -244,6 +244,51 @@ Origin scope: **PRG, VIE, BTS, BRQ, OSR, PED**
 
 ---
 
+## Link Quality QA Checklist
+
+Use this table to track manual validation of airline search URL patterns.
+
+**How to manually test a link:**
+1. Run Tripwise locally with `npm run dev`
+2. Enter a search like "Chci v červenci k moři z Prahy"
+3. Expand "Další zdroje k ručnímu ověření"
+4. Click the `[dev] URL preview` triangle to see the full URL
+5. Open the URL in a browser — check if route/date fields are prefilled
+6. Update `airlineLinkValidation.ts` with the result and today's date
+
+| Airline | Link kind | Confidence | Validation status | Last tested | Manual result | Notes |
+|---|---|---|---|---|---|---|
+| Ryanair | search | high | manual-ok | 2025-01-15 | ✓ Prefilled | `/trip/flights/select?originIata=...` works |
+| Wizz Air | search | medium | untested | — | — | Path `/en-gb/booking/select-flight/...` observed |
+| easyJet | search | medium | untested | — | — | `/en/cheap-flights/{org}/{dst}?departDate=` |
+| Pegasus | search | medium | untested | — | — | `book.flypgs.com/en/round-trip?` DD/MM/YYYY dates |
+| Norwegian | search | medium | untested | — | — | `/booking/flight/search/?D_City=...` |
+| Eurowings | search | low | untested | — | — | SPA may ignore query params |
+| Vueling | search | low | untested | — | — | SPA routing; params may be ignored |
+| Transavia | search | low | untested | — | — | Path-based date format DDMMYYYY |
+| SunExpress | search | low | untested | — | — | Seasonal; verify route exists |
+| airBaltic | search | low | untested | — | — | React SPA; params may not deep-link |
+| Smartwings | search | low | untested | — | — | booking.smartwings.com third-party engine |
+| Condor | search | low | untested | — | — | JSP; DD.MM.YYYY dates |
+| AJet | search | low | untested | — | — | Rebranded; URL may have changed |
+| Volotea | search | low | untested | — | — | Small carrier; limited CZ routes |
+| Jet2 | search | low | untested | — | — | DD-Mon-YYYY dates; limited CZ presence |
+| Corendon | homepage | high | untested | — | — | Charter; no reliable booking URL |
+| Air Cairo | homepage | high | untested | — | — | Charter; no reliable booking URL |
+
+**When you test a link, update `src/lib/search/airlineLinkValidation.ts`:**
+```typescript
+airline: {
+  validationStatus: "manual-ok",   // or "manual-broken"
+  lastValidatedAt: "2026-MM-DD",
+  validationNote: "What you observed...",
+},
+```
+
+**If you mark a link `manual-broken`:** the builder automatically falls back to homepage — no code change needed.
+
+---
+
 ## Safety Rules (always apply)
 
 1. Never present search-only results as having a confirmed price.

@@ -134,6 +134,8 @@ function ResultsTable({ results, relaxed = false }: { results: ItineraryOption[]
   );
 }
 
+const IS_DEV = process.env.NODE_ENV !== "production";
+
 const linkKindBadge: Record<string, { label: string; cls: string }> = {
   search:   { label: "hledání",        cls: "bg-sea/10 text-sea" },
   fallback: { label: "web",            cls: "bg-ink/5 text-ink/45" },
@@ -146,9 +148,23 @@ const confidenceBadge: Record<string, string> = {
   low:    "text-ink/35",
 };
 
+const validationTooltip: Record<string, string> = {
+  "untested":      "Odkaz zatím netestovaný. Může vyžadovat ruční zadání.",
+  "manual-ok":     "Ručně ověřeno — odkaz otevírá předvyplněné vyhledávání.",
+  "manual-broken": "Odkaz nefunguje — zobrazujeme záložní web aerolinky.",
+  "auto-ok":       "Automatická sonda vrátila HTTP 200 (obsah neověřen).",
+  "auto-failed":   "Automatická sonda selhala — použij záložní web aerolinky.",
+};
+
+function validationGlyph(status?: string): string {
+  if (status === "manual-ok" || status === "auto-ok") return "✓";
+  if (status === "manual-broken" || status === "auto-failed") return "✗";
+  return "?";
+}
+
 function buildCopyText(trip: ItineraryOption, wish?: string): string {
   const lines = [
-    `${trip.airline}`,
+    trip.airline,
     `${trip.origin} → ${trip.destinationAirportCode} (${trip.destination}, ${trip.country ?? ""})`,
     `Odlet: ${formatDateCz(trip.dates.depart)}  Zpáteční: ${formatDateCz(trip.dates.return)}`,
     `Cestující: ${trip.passengers ?? 1}`,
@@ -159,12 +175,9 @@ function buildCopyText(trip: ItineraryOption, wish?: string): string {
 }
 
 // Collapsible section for search-only airline verification links.
-// These are NOT priced results — they exist so the user can manually check airlines
-// that Tripwise cannot query automatically.
 function SearchOnlySection({ results, wish }: { results: ItineraryOption[]; wish?: string }) {
   if (results.length === 0) return null;
 
-  // Group by airline for cleaner display
   const byAirline = new Map<string, ItineraryOption[]>();
   for (const r of results) {
     if (!byAirline.has(r.airline)) byAirline.set(r.airline, []);
@@ -194,40 +207,69 @@ function SearchOnlySection({ results, wish }: { results: ItineraryOption[]; wish
                 const kind = trip.linkType === "fallback" ? "fallback" : "search";
                 const badge = linkKindBadge[kind];
                 const confCls = confidenceBadge[trip.linkConfidence ?? "low"];
+                const vStatus = trip.linkValidationStatus ?? "untested";
+                const vTooltip = [
+                  validationTooltip[vStatus] ?? validationTooltip["untested"],
+                  trip.linkValidationNote ?? "",
+                  trip.linkLastValidatedAt ? `Ověřeno: ${trip.linkLastValidatedAt}` : "",
+                ].filter(Boolean).join(" — ");
+
                 return (
-                  <div key={trip.id} className="flex items-center gap-2 text-xs">
-                    <a
-                      href={trip.sourceUrl}
-                      target="_blank"
-                      rel="noreferrer"
-                      className="inline-flex items-center gap-1.5 rounded border border-ink/10 bg-slate-50 px-2.5 py-1 font-semibold text-ink/70 hover:border-sea/30 hover:bg-sea/5 hover:text-sea"
-                    >
-                      <span className="font-bold">{trip.origin} → {trip.destinationAirportCode}</span>
-                      <span className="text-ink/40">·</span>
-                      <span>{trip.destination}</span>
-                      <span className={`ml-1 rounded px-1 py-0.5 text-[10px] font-bold uppercase ${badge.cls}`}>
-                        {badge.label}
-                      </span>
-                      {trip.linkConfidence && (
-                        <span className={`text-[10px] font-bold ${confCls}`} title={`Spolehlivost odkazu: ${trip.linkConfidence}`}>
-                          {trip.linkConfidence === "high" ? "✓" : trip.linkConfidence === "medium" ? "~" : "?"}
+                  <div key={trip.id} className="space-y-1">
+                    <div className="flex flex-wrap items-center gap-2 text-xs">
+                      <a
+                        href={trip.sourceUrl}
+                        target="_blank"
+                        rel="noreferrer"
+                        className="inline-flex items-center gap-1.5 rounded border border-ink/10 bg-slate-50 px-2.5 py-1 font-semibold text-ink/70 hover:border-sea/30 hover:bg-sea/5 hover:text-sea"
+                        title={vTooltip}
+                      >
+                        <span className="font-bold">{trip.origin} → {trip.destinationAirportCode}</span>
+                        <span className="text-ink/40">·</span>
+                        <span>{trip.destination}</span>
+                        <span className={`ml-1 rounded px-1 py-0.5 text-[10px] font-bold uppercase ${badge.cls}`}>
+                          {badge.label}
                         </span>
-                      )}
-                    </a>
-                    <span className="text-ink/35">
-                      {formatDateCz(trip.dates.depart)} – {formatDateCz(trip.dates.return)}
-                    </span>
-                    <CopyRouteButton text={buildCopyText(trip, wish)} />
+                        {trip.linkConfidence && (
+                          <span className={`text-[10px] font-bold ${confCls}`} title={`Spolehlivost: ${trip.linkConfidence}`}>
+                            {trip.linkConfidence === "high" ? "✓" : trip.linkConfidence === "medium" ? "~" : "?"}
+                          </span>
+                        )}
+                        <span
+                          className={`text-[10px] font-bold ${vStatus === "manual-ok" ? "text-sea/60" : vStatus === "manual-broken" ? "text-coral" : "text-ink/30"}`}
+                          title={vTooltip}
+                        >
+                          {validationGlyph(vStatus)}
+                        </span>
+                      </a>
+                      <span className="text-ink/35">
+                        {formatDateCz(trip.dates.depart)} – {formatDateCz(trip.dates.return)}
+                      </span>
+                      <CopyRouteButton text={buildCopyText(trip, wish)} />
+                    </div>
+                    {IS_DEV && (
+                      <details className="ml-1">
+                        <summary className="cursor-pointer text-[10px] font-semibold text-ink/30 hover:text-ink/60">
+                          [dev] URL preview
+                        </summary>
+                        <p className="mt-0.5 break-all rounded bg-slate-100 px-2 py-1 font-mono text-[10px] text-ink/50 select-all">
+                          {trip.sourceUrl}
+                        </p>
+                        {trip.linkValidationNote && (
+                          <p className="mt-0.5 text-[10px] text-amber-700/70">{trip.linkValidationNote}</p>
+                        )}
+                      </details>
+                    )}
                   </div>
                 );
               })}
             </div>
-            <p className="mt-2 text-[11px] font-semibold text-ink/40">{trips[0]?.availabilityNote}</p>
           </div>
         ))}
       </div>
       <p className="border-t border-ink/5 px-5 py-2 text-[11px] font-semibold text-ink/40">
-        Pouze ověřovací odkazy · bez garance ceny nebo dostupnosti · vždy ověř přímo u dopravce · ✓ vysoká / ~ střední / ? nízká spolehlivost odkazu
+        Pouze ověřovací odkazy · bez garance ceny nebo dostupnosti · vždy ověř přímo u dopravce
+        {" "}· ✓ vysoká / ~ střední / ? nízká spolehlivost · {IS_DEV && "[dev] URL preview dostupné"}
       </p>
     </details>
   );
