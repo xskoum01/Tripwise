@@ -1,4 +1,4 @@
-import type { ServerEnv } from "@/lib/config/env";
+import type { DuffelMode, ServerEnv } from "@/lib/config/env";
 import { mvpDestinations, resolveMvpDestinations, type SearchDestination } from "../destinations";
 import type { FlightSegment, ItineraryOption, OriginAirport, ProviderSearchResult, TravelSearchRequest } from "../types";
 import { skippedProviderResult, type TravelSourceAdapter } from "./baseAdapter";
@@ -185,7 +185,7 @@ function calcLayoverHours(segs: FlightSegment[]): number | undefined {
   return total > 0 ? Math.round((total / 60) * 10) / 10 : undefined;
 }
 
-function normalizeOffer(offer: DuffelOffer, combo: SearchCombination, request: TravelSearchRequest): ItineraryOption | undefined {
+function normalizeOffer(offer: DuffelOffer, combo: SearchCombination, request: TravelSearchRequest, duffelMode: DuffelMode): ItineraryOption | undefined {
   if (!offer.id || !offer.total_amount || !offer.slices?.length) return undefined;
 
   const outboundSlice = offer.slices[0];
@@ -213,15 +213,19 @@ function normalizeOffer(offer: DuffelOffer, combo: SearchCombination, request: T
   const carrier = offer.owner?.name ?? firstOut?.carrierName ?? "Duffel";
 
   const destInfo = mvpDestinations.find((d) => d.code === destinationAirportCode);
+  const isTest = duffelMode === "test";
 
   return {
     id: `duffel-${offer.id}`,
     provider: "duffel",
     providerResultId: offer.id,
-    source: "Duffel",
-    availabilityStatus: "verified",
-    availabilityNote: "Ověřená nabídka z Duffel test režimu. Před rezervací je nutné nabídku znovu ověřit.",
-    priceStatus: "live",
+    source: isTest ? "Duffel (sandbox)" : "Duffel",
+    availabilityStatus: isTest ? "mock" : "verified",
+    availabilityNote: isTest
+      ? "Sandbox nabídka z Duffel test režimu. Nejde o reálné letenky pro nákup."
+      : "Ověřená nabídka z Duffel. Před rezervací ověř aktuální dostupnost.",
+    priceStatus: isTest ? "unknown" : "live",
+    isSandbox: isTest,
     origin,
     destinationAirportCode,
     destination: destInfo?.city ?? combo.destination.city,
@@ -237,7 +241,9 @@ function normalizeOffer(offer: DuffelOffer, combo: SearchCombination, request: T
     sourceUrl: "https://duffel.com/",
     deepLink: undefined,
     linkType: "fallback",
-    linkNote: "Booking zatím není implementovaný. Nabídka pochází z Duffel test režimu.",
+    linkNote: isTest
+      ? "Duffel test mode – sandbox data, ne pro nákup."
+      : "Booking zatím není implementovaný. Ověř nabídku přímo u Duffelu.",
     departureTime: timePart(firstOut?.departureDateTime),
     returnTime: timePart(firstIn?.departureDateTime),
     baggageIncluded: ["backpack"],
@@ -245,14 +251,17 @@ function normalizeOffer(offer: DuffelOffer, combo: SearchCombination, request: T
     layoverHours: calcLayoverHours(outboundSegments),
     weekendFit: 70,
     destinationValue: 75,
-    reliability: 80,
+    reliability: isTest ? 0 : 80,
     segments,
     outboundSegments,
     inboundSegments,
     passengers: 1,
     isReturn: inboundSegments.length > 0,
     weatherConfidence: "unknown",
-    warnings: ["Zavazadlo nebylo parsováno z Duffel odpovědi; zobrazena výchozí hodnota batoh."],
+    warnings: [
+      "Zavazadlo nebylo parsováno z Duffel odpovědi; zobrazena výchozí hodnota batoh.",
+      ...(isTest ? ["Sandbox výsledek – nereálná cena/dostupnost."] : []),
+    ],
   };
 }
 
@@ -274,7 +283,11 @@ export class DuffelAdapter implements TravelSourceAdapter {
     }
 
     const token = this.env.duffelAccessToken!;
+    const duffelMode = this.env.duffelMode ?? "live";
     const warnings: string[] = [];
+    if (duffelMode === "test") {
+      warnings.push("Duffel token is in test mode — results are sandbox data, not real offers.");
+    }
     const { combinations, limitedToMvpSet } = buildCombinations(request);
 
     if (combinations.length === 0) {
@@ -329,7 +342,7 @@ export class DuffelAdapter implements TravelSourceAdapter {
       }
 
       for (const offer of offers) {
-        const normalized = normalizeOffer(offer, combo, request);
+        const normalized = normalizeOffer(offer, combo, request, duffelMode);
         if (normalized) allOffers.push(normalized);
       }
     }

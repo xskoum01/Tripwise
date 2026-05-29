@@ -4,7 +4,9 @@ import { formatDateRangeCz, formatTripLengthCz } from "@/lib/format/date";
 const airportLabels: Record<OriginAirport, string> = {
   PRG: "Praha (PRG)",
   VIE: "Vídeň (VIE)",
+  BTS: "Bratislava (BTS)",
   BRQ: "Brno (BRQ)",
+  OSR: "Ostrava (OSR)",
   PED: "Pardubice (PED)",
 };
 
@@ -27,9 +29,18 @@ export function FilterSummary({ request, compact = false }: { request: TravelSea
     request.minNights === request.maxNights && request.minNights !== undefined
       ? formatTripLengthCz(request.minNights)
       : `${request.minNights ?? 1}-${formatTripLengthCz(request.maxNights ?? 14)}`;
+
+  const dateSummary = request.dateLabel
+    ? `Termín: ${request.dateLabel}`
+    : dateRange
+      ? `Termín: ${dateRange}`
+      : request.targetMonth
+        ? `Termín: ${monthLabels[request.targetMonth - 1]} ${yearFromDate(request.dateFrom)}`
+        : undefined;
+
   const parts = [
     `Odlet: ${request.origins.map((origin) => airportLabels[origin]).join(", ")}`,
-    dateRange ?? (request.targetMonth ? `Termín: ${monthLabels[request.targetMonth - 1]} ${yearFromDate(request.dateFrom)}` : undefined),
+    dateSummary,
     `Typ: ${destinationLabels[request.destinationMode]}`,
     request.minTemperatureC ? `Teplota: alespoň ${request.minTemperatureC} °C` : undefined,
     request.maxBudget ? `Rozpočet: do ${request.maxBudget.toLocaleString("cs-CZ")} Kč` : undefined,

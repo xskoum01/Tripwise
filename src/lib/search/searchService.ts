@@ -1,10 +1,12 @@
-import { getServerEnv } from "@/lib/config/env";
+import { getServerEnv, type ServerEnv } from "@/lib/config/env";
 import { getProviderStatuses } from "@/lib/providers/status";
 import { enrichWeather } from "@/lib/weather/openMeteoService";
 import { DuffelAdapter } from "./adapters/duffelAdapter";
 import { KiwiAdapter } from "./adapters/kiwiAdapter";
 import { MockTravelAdapter } from "./adapters/mockAdapter";
 import { RyanairDeepLinkAdapter } from "./adapters/ryanairDeepLinkAdapter";
+import { RyanairUnofficialAdapter } from "./adapters/ryanairUnofficialAdapter";
+import { SearchOnlyAirlineAdapter } from "./adapters/searchOnlyAirlineAdapter";
 import { SkyscannerIndicativeAdapter } from "./adapters/skyscannerIndicativeAdapter";
 import { SkyscannerLiveAdapter } from "./adapters/skyscannerLiveAdapter";
 import { errorProviderResult, type TravelSourceAdapter } from "./adapters/baseAdapter";
@@ -21,19 +23,29 @@ const unconfiguredProviderWarnings: Partial<Record<TravelSourceAdapter["name"], 
   "skyscanner-indicative": "Skyscanner není nakonfigurovaný. Přidej SKYSCANNER_API_KEY do .env.local.",
   duffel: "Duffel není nakonfigurovaný. Přidej DUFFEL_ACCESS_TOKEN do .env.local.",
   kiwi: "Kiwi/Tequila není nakonfigurované. Přidej KIWI_API_KEY nebo TEQUILA_API_KEY do .env.local a restartuj dev server.",
+  "ryanair-unofficial": "Neoficiální Ryanair zdroj je vypnutý. Nastav ENABLE_RYANAIR_UNOFFICIAL_PROVIDER=true pro osobní použití.",
 };
 
-function buildAdapters(): TravelSourceAdapter[] {
-  const env = getServerEnv();
+// Provider priority for personal low-cost trip hunting:
+//   1. Personal/unofficial low-cost sources (ryanair-unofficial) — highest discovery value
+//   2. Deep-link search helpers (ryanair-deeplink)
+//   3. Verified commercial APIs (duffel live, kiwi, skyscanner)
+//   4. Development/test sources (duffel test, mock) — excluded from primary by default
+function buildAdapters(env: ServerEnv): TravelSourceAdapter[] {
   const adapters: TravelSourceAdapter[] = [
+    // Personal low-cost providers first
+    new RyanairUnofficialAdapter(env),
+    new RyanairDeepLinkAdapter(),
+    // Commercial APIs
+    new KiwiAdapter(env),
     new SkyscannerLiveAdapter(env),
     new SkyscannerIndicativeAdapter(env),
     new DuffelAdapter(env),
-    new KiwiAdapter(env),
-    new RyanairDeepLinkAdapter(),
   ];
 
   if (env.enableMockProvider) adapters.push(new MockTravelAdapter());
+  // Search-only adapter runs last; its results are separated before scoring
+  adapters.push(new SearchOnlyAirlineAdapter(env.enableAirlineSearchLinks));
   return adapters;
 }
 
@@ -206,8 +218,9 @@ async function runAdapter(adapter: TravelSourceAdapter, request: TravelSearchReq
 }
 
 export async function searchTrips(input: Partial<TravelSearchRequest> & { wish: string }): Promise<SearchResponse> {
+  const env = getServerEnv();
   const parsedRequest = parseTravelWish(input.wish, input);
-  const adapterResults = await Promise.all(buildAdapters().map((adapter) => runAdapter(adapter, parsedRequest)));
+  const adapterResults = await Promise.all(buildAdapters(env).map((adapter) => runAdapter(adapter, parsedRequest)));
   const providerWarnings = adapterResults.flatMap((result) => result.warnings.map((warning) => `${result.provider}: ${warning}`));
   const providerStatuses = getProviderStatuses();
   const statusByName = new Map(providerStatuses.map((provider) => [provider.name, provider] as const));
@@ -216,17 +229,31 @@ export async function searchTrips(input: Partial<TravelSearchRequest> & { wish: 
     !statusByName.get("skyscanner-indicative")?.enabled &&
     !statusByName.get("duffel")?.enabled &&
     !statusByName.get("kiwi")?.enabled &&
+    !statusByName.get("ryanair-unofficial")?.enabled &&
     !statusByName.get("mock")?.enabled;
 
+  // Separate search-only results before any scoring — they have no price and
+  // must not enter the main recommendation pipeline.
+  const allAdapterResults = adapterResults.flatMap((result) => result.results);
+  const searchOnlyResults = allAdapterResults.filter((t) => t.provider === "airline-search-link");
+  const pricedAdapterResults = allAdapterResults.filter((t) => t.provider !== "airline-search-link");
+
   // Currency normalization happens before scoring so price scoring uses CZK
-  const rawResults = dedupeItineraries(adapterResults.flatMap((result) => result.results).map(normalizeProviderLink));
+  const rawResults = dedupeItineraries(pricedAdapterResults.map(normalizeProviderLink));
   const withCurrency = rawResults.map(normalizeCurrency);
   const enrichedResults = await Promise.all(withCurrency.map((trip) => enrichWeather(trip)));
   const scoredResults = enrichedResults.map((trip) => scoreItinerary(trip, parsedRequest)).sort(byScore);
 
-  const exactResults = scoredResults.filter((trip) => trip.availabilityStatus === "verified" && matchesHardConstraints(trip, parsedRequest));
-  const indicativeResults = scoredResults.filter((trip) => trip.availabilityStatus === "indicative" && matchesHardConstraints(trip, parsedRequest));
-  const demoOrSearchResults = scoredResults.filter((trip) => !["verified", "indicative"].includes(trip.availabilityStatus) && matchesHardConstraints(trip, parsedRequest));
+  // Separate sandbox results (Duffel test mode) from real candidates.
+  // When showDuffelTestResults is false (default), sandbox results are excluded from
+  // primary recommendations and placed in a separate section so they never mix with
+  // real Ryanair / Kiwi candidates.
+  const sandboxResults = scoredResults.filter((t) => t.isSandbox);
+  const realResults = env.showDuffelTestResults ? scoredResults : scoredResults.filter((t) => !t.isSandbox);
+
+  const exactResults = realResults.filter((trip) => trip.availabilityStatus === "verified" && matchesHardConstraints(trip, parsedRequest));
+  const indicativeResults = realResults.filter((trip) => trip.availabilityStatus === "indicative" && matchesHardConstraints(trip, parsedRequest));
+  const demoOrSearchResults = realResults.filter((trip) => !["verified", "indicative"].includes(trip.availabilityStatus) && matchesHardConstraints(trip, parsedRequest));
   const primaryCandidates = exactResults.length > 0 ? exactResults : indicativeResults.length > 0 ? indicativeResults : demoOrSearchResults;
 
   // Post-processing: dedup similar offers, remove dominated, limit result count
@@ -248,7 +275,7 @@ export async function searchTrips(input: Partial<TravelSearchRequest> & { wish: 
   const relaxedResults =
     primaryResults.length > 0
       ? []
-      : scoredResults
+      : realResults
           .filter((trip) => relaxedCandidate(trip, parsedRequest))
           .map((trip) => ({
             ...trip,
@@ -273,5 +300,7 @@ export async function searchTrips(input: Partial<TravelSearchRequest> & { wish: 
     relaxationMessages: buildRelaxationMessages(parsedRequest, relaxedResults),
     featured: featured(primaryResults),
     postProcessDiagnostics: diagnostics,
+    sandboxResults,
+    searchOnlyResults,
   };
 }

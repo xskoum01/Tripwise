@@ -1,8 +1,29 @@
+export type DatePrecision = "month" | "early-month" | "mid-month" | "late-month" | "month-transition" | "week";
+
+// Confidence level for the data source behind a result.
+//   official        — live data from an official airline or GDS API
+//   official-test   — official API but test/sandbox environment
+//   unofficial      — public endpoint not intended for third-party programmatic use
+//   cached          — previously fetched official data, may be stale
+//   search-only     — no price fetched; result is a manual verification link only
+//   demo            — synthetic demo/mock data
+//   user-verified   — price confirmed by user after manual check
+export type SourceConfidence =
+  | "official"
+  | "official-test"
+  | "unofficial"
+  | "cached"
+  | "search-only"
+  | "demo"
+  | "user-verified";
+
 export type AirportCode =
   | "PRG"
   | "VIE"
   | "BRQ"
   | "PED"
+  | "BTS"
+  | "OSR"
   | "TFS"
   | "LPA"
   | "AGP"
@@ -13,7 +34,8 @@ export type AirportCode =
   | "SPU"
   | "BCN"
   | "CPH";
-export type OriginAirport = "PRG" | "VIE" | "BRQ" | "PED";
+
+export type OriginAirport = "PRG" | "VIE" | "BRQ" | "PED" | "BTS" | "OSR";
 export type BaggageOption = "backpack" | "cabin" | "checked";
 export type DestinationMode = "any" | "sea" | "warm" | "cityBreak";
 export type LinkType = "exact" | "search" | "fallback";
@@ -23,9 +45,11 @@ export type ProviderName =
   | "duffel"
   | "kiwi"
   | "ryanair-deeplink"
+  | "ryanair-unofficial"
+  | "airline-search-link"
   | "open-meteo"
   | "mock";
-export type ProviderMode = "verified" | "indicative" | "search" | "fallback" | "enrichment" | "demo";
+export type ProviderMode = "verified" | "indicative" | "search" | "fallback" | "enrichment" | "demo" | "unofficial" | "search-only";
 export type TravelSource = "Ryanair" | "Skyscanner" | "Kiwi" | "Mock" | "Duffel" | "Tripwise demo" | (string & {});
 export type AvailabilityStatus = "verified" | "indicative" | "search" | "fallback" | "mock";
 export type PriceStatus = "live" | "cached" | "estimated" | "unknown";
@@ -49,6 +73,8 @@ export type TravelSearchRequest = {
   targetMonth?: number;
   dateFrom?: string;
   dateTo?: string;
+  datePrecision?: DatePrecision;
+  dateLabel?: string;
   minTemperatureC?: number;
   maxBudget?: number;
   minNights?: number;
@@ -105,6 +131,7 @@ export type ItineraryOption = {
   currency?: string;
   priceCzk?: number;
   priceStatus: PriceStatus;
+  sourceConfidence?: SourceConfidence;
   airline: string;
   source: TravelSource;
   sourceUrl: string;
@@ -132,6 +159,7 @@ export type ItineraryOption = {
   explanation?: string;
   warnings?: string[];
   relaxationReasons?: string[];
+  isSandbox?: boolean;
 };
 
 export type ProviderSearchResult = {
@@ -178,4 +206,6 @@ export type SearchResponse = {
     bestWeekend?: ItineraryOption;
   };
   postProcessDiagnostics?: PostProcessDiagnostics;
+  sandboxResults: ItineraryOption[];
+  searchOnlyResults: ItineraryOption[];
 };

@@ -32,6 +32,183 @@ function displayLinkType(trip: ItineraryOption): LinkType {
   return linkType === "exact" && trip.availabilityStatus !== "verified" ? "search" : linkType;
 }
 
+// Source badge renders a small pill that identifies the provider type at a glance.
+function SourceBadge({ trip }: { trip: ItineraryOption }) {
+  if (trip.isSandbox) {
+    return <span className="mt-1 block rounded bg-orange-100 px-1.5 py-0.5 text-xs font-semibold text-orange-700">Sandbox</span>;
+  }
+  if (trip.provider === "ryanair-unofficial") {
+    return <span className="mt-1 block rounded bg-amber-50 px-1.5 py-0.5 text-xs font-semibold text-amber-700">Neoficiální zdroj</span>;
+  }
+  if (trip.availabilityStatus === "verified") {
+    return <span className="mt-1 block rounded bg-sea/10 px-1.5 py-0.5 text-xs font-semibold text-sea">Ověřená nabídka</span>;
+  }
+  if (trip.availabilityStatus === "mock") {
+    return <span className="mt-1 block rounded bg-ink/5 px-1.5 py-0.5 text-xs font-semibold text-ink/50">Demo</span>;
+  }
+  return null;
+}
+
+// Action cell in the results table — link button or Duffel detail panel.
+function SourceAction({ trip }: { trip: ItineraryOption }) {
+  return (
+    <td className="px-5 py-4">
+      {trip.provider === "duffel" && trip.linkType === "fallback" ? (
+        <DuffelOfferDetail trip={trip} />
+      ) : trip.provider === "ryanair-unofficial" ? (
+        <a className="font-bold text-amber-600 hover:text-ink" href={trip.sourceUrl} target="_blank" rel="noreferrer">
+          Ověřit u Ryanairu
+        </a>
+      ) : (
+        <a className="font-bold text-sea hover:text-ink" href={trip.sourceUrl} target="_blank" rel="noreferrer">
+          {linkLabels[displayLinkType(trip)]}
+        </a>
+      )}
+      <span className="mt-1 block text-xs font-semibold text-ink/55">{trip.source}</span>
+      <span className="mt-1 block text-xs font-semibold text-ink/55">
+        {availabilityLabels[trip.availabilityStatus]} · {trip.provider}
+      </span>
+      <SourceBadge trip={trip} />
+      {displayLinkType(trip) === "fallback" && trip.provider !== "duffel" && trip.provider !== "ryanair-unofficial" && (
+        <span className="mt-1 block max-w-44 text-xs font-semibold text-ink/55">
+          {trip.linkNote ?? "Zdroj zatím neumí přesný odkaz."}
+        </span>
+      )}
+    </td>
+  );
+}
+
+// Table shared between primary results and sandbox section.
+function ResultsTable({ results, relaxed = false }: { results: ItineraryOption[]; relaxed?: boolean }) {
+  return (
+    <div className="overflow-x-auto">
+      <table className="min-w-[960px] w-full text-left text-sm">
+        <thead className="bg-slate-50 text-xs uppercase tracking-wide text-ink/55">
+          <tr>
+            <th className="px-5 py-3">Destinace</th>
+            <th className="px-5 py-3">Termín</th>
+            <th className="px-5 py-3">Teplota</th>
+            <th className="px-5 py-3">Cena</th>
+            <th className="px-5 py-3">Trasa</th>
+            <th className="px-5 py-3">Score</th>
+            <th className="px-5 py-3">Zdroj</th>
+          </tr>
+        </thead>
+        <tbody className="divide-y divide-ink/10">
+          {results.map((trip) => (
+            <tr key={trip.id} className={`align-top ${relaxed ? "opacity-75" : ""}`}>
+              <td className="px-5 py-4 font-bold text-ink">{trip.destination}</td>
+              <td className="px-5 py-4 text-ink/70">
+                {formatDateRangeCz(trip.dates.depart, trip.dates.return)}
+                <span className="block text-xs">
+                  {formatTripLengthCz(trip.nights)} · {trip.origin}
+                </span>
+              </td>
+              <td className="px-5 py-4 text-ink/70">{trip.expectedTemperatureC !== undefined ? `${trip.expectedTemperatureC} °C` : "Neznámá"}</td>
+              <td className="px-5 py-4 font-black text-ink">
+                {trip.priceCzk !== undefined
+                  ? `${trip.priceCzk.toLocaleString("cs-CZ")} Kč`
+                  : trip.totalPrice !== undefined
+                    ? `${trip.totalPrice.toLocaleString("cs-CZ")} ${trip.currency ?? "Kč"}`
+                    : "Neznámá"}
+                {trip.priceCzk !== undefined && trip.currency !== undefined && trip.currency !== "CZK" && trip.totalPrice !== undefined && (
+                  <span className="block text-xs font-normal text-ink/45">
+                    {trip.totalPrice.toLocaleString("cs-CZ", { minimumFractionDigits: 2, maximumFractionDigits: 2 })} {trip.currency}
+                  </span>
+                )}
+                <span className="block text-xs font-semibold text-ink/50">{priceLabels[trip.priceStatus]}</span>
+              </td>
+              <td className="px-5 py-4 text-ink/70">{trip.direct ? "Přímý let" : `Přestup ${trip.layoverHours} h`}</td>
+              <td className="px-5 py-4">
+                <ScoreBadge score={trip.score ?? 0} label="score" />
+                <span className="mt-2 block max-w-44 text-xs font-semibold text-ink/60">{buildScoreSummary(trip)}</span>
+                {trip.warnings?.[0] && <span className="mt-1 block max-w-44 text-xs font-semibold text-coral">{buildWarningSummary(trip)}</span>}
+              </td>
+              <SourceAction trip={trip} />
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </div>
+  );
+}
+
+// Collapsible section for search-only airline verification links.
+// These are NOT priced results — they exist so the user can manually check airlines
+// that Tripwise cannot query automatically.
+function SearchOnlySection({ results }: { results: ItineraryOption[] }) {
+  if (results.length === 0) return null;
+
+  // Group by airline for cleaner display
+  const byAirline = new Map<string, ItineraryOption[]>();
+  for (const r of results) {
+    const key = r.airline;
+    if (!byAirline.has(key)) byAirline.set(key, []);
+    byAirline.get(key)!.push(r);
+  }
+
+  return (
+    <details className="overflow-hidden rounded-lg border border-ink/10 bg-white/80 shadow-soft" open>
+      <summary className="cursor-pointer select-none border-b border-ink/10 px-5 py-3">
+        <span className="text-xs font-bold uppercase tracking-wide text-ink/60">Další zdroje k ručnímu ověření</span>
+        <span className="ml-2 text-xs font-semibold text-ink/40">({results.length} dopravců / tras)</span>
+        <p className="mt-1 text-xs font-semibold text-ink/50">
+          Tripwise u těchto dopravců automaticky nezískal cenu. Ověř ji ručně přímo u aerolinky.
+        </p>
+      </summary>
+      <div className="divide-y divide-ink/5">
+        {[...byAirline.entries()].map(([airlineName, trips]) => (
+          <div key={airlineName} className="px-5 py-3">
+            <p className="text-xs font-bold text-ink/70">{airlineName}</p>
+            <div className="mt-2 flex flex-wrap gap-2">
+              {trips.map((trip) => (
+                <a
+                  key={trip.id}
+                  href={trip.sourceUrl}
+                  target="_blank"
+                  rel="noreferrer"
+                  className="inline-flex items-center gap-1.5 rounded-full border border-ink/10 bg-slate-50 px-3 py-1.5 text-xs font-semibold text-ink/70 hover:border-sea/30 hover:bg-sea/5 hover:text-sea"
+                >
+                  <span>{trip.origin} → {trip.destinationAirportCode}</span>
+                  <span className="text-ink/40">·</span>
+                  <span>{trip.destination}</span>
+                  <span className="ml-1 rounded bg-ink/5 px-1 py-0.5 text-[10px] font-bold uppercase text-ink/40">
+                    {trip.linkType === "search" ? "hledání" : "web"}
+                  </span>
+                </a>
+              ))}
+            </div>
+          </div>
+        ))}
+      </div>
+      <p className="border-t border-ink/5 px-5 py-2 text-[11px] font-semibold text-ink/40">
+        Pouze ověřovací odkazy · bez garance ceny nebo dostupnosti · vždy ověř přímo u dopravce
+      </p>
+    </details>
+  );
+}
+
+// Collapsible section for Duffel test mode sandbox results.
+// Shown at the bottom, separate from real recommendations.
+function SandboxSection({ results }: { results: ItineraryOption[] }) {
+  if (results.length === 0) return null;
+
+  return (
+    <details className="overflow-hidden rounded-lg border border-orange-200 bg-orange-50/50 shadow-soft">
+      <summary className="cursor-pointer select-none border-b border-orange-200 px-5 py-3">
+        <span className="text-xs font-bold uppercase tracking-wide text-orange-600">Testovací Duffel výsledky</span>
+        <span className="ml-2 text-xs font-semibold text-orange-500">({results.length})</span>
+        <p className="mt-1 text-xs font-semibold text-orange-700/80">
+          Duffel test mode vrací sandbox data. Nejde o reálné letenky pro nákup.
+        </p>
+      </summary>
+      <div className="bg-white">
+        <ResultsTable results={results} />
+      </div>
+    </details>
+  );
+}
+
 export function TripResults({ data }: { data: SearchResponse }) {
   const hasExact = data.exactResults.length > 0;
   const displayResults = hasExact ? data.exactResults : data.relaxedResults;
@@ -69,18 +246,24 @@ export function TripResults({ data }: { data: SearchResponse }) {
           </div>
 
           <TechnicalDetails warnings={data.providerWarnings} />
+          <SearchOnlySection results={data.searchOnlyResults} />
+          <SandboxSection results={data.sandboxResults} />
         </section>
       );
     }
 
     return (
-      <section className="rounded-lg border border-ink/10 bg-white p-6 shadow-soft">
-        <h2 className="text-xl font-black text-ink">Nic jsme nenašli</h2>
-        <p className="mt-2 text-sm text-ink/65">Žádný zapnutý poskytovatel nevrátil výsledek pro zadané podmínky.</p>
-        <div className="mt-4">
-          <FilterSummary request={data.appliedFilters} />
+      <section className="space-y-4">
+        <div className="rounded-lg border border-ink/10 bg-white p-6 shadow-soft">
+          <h2 className="text-xl font-black text-ink">Nic jsme nenašli</h2>
+          <p className="mt-2 text-sm text-ink/65">Žádný zapnutý poskytovatel nevrátil výsledek pro zadané podmínky.</p>
+          <div className="mt-4">
+            <FilterSummary request={data.appliedFilters} />
+          </div>
+          <TechnicalDetails warnings={data.providerWarnings} />
         </div>
-        <TechnicalDetails warnings={data.providerWarnings} />
+        <SearchOnlySection results={data.searchOnlyResults} />
+        <SandboxSection results={data.sandboxResults} />
       </section>
     );
   }
@@ -139,73 +322,11 @@ export function TripResults({ data }: { data: SearchResponse }) {
           <p className="text-xs font-bold uppercase tracking-wide text-sea">Další možnosti</p>
           <h3 className="text-lg font-black text-ink">{hasExact ? "Porovnání přesných shod" : "Porovnání alternativ"}</h3>
         </div>
-        <div className="overflow-x-auto">
-          <table className="min-w-[960px] w-full text-left text-sm">
-            <thead className="bg-slate-50 text-xs uppercase tracking-wide text-ink/55">
-              <tr>
-                <th className="px-5 py-3">Destinace</th>
-                <th className="px-5 py-3">Termín</th>
-                <th className="px-5 py-3">Teplota</th>
-                <th className="px-5 py-3">Cena</th>
-                <th className="px-5 py-3">Trasa</th>
-                <th className="px-5 py-3">Score</th>
-                <th className="px-5 py-3">Zdroj</th>
-              </tr>
-            </thead>
-            <tbody className="divide-y divide-ink/10">
-              {displayResults.map((trip) => (
-                <tr key={trip.id} className="align-top">
-                  <td className="px-5 py-4 font-bold text-ink">{trip.destination}</td>
-                  <td className="px-5 py-4 text-ink/70">
-                    {formatDateRangeCz(trip.dates.depart, trip.dates.return)}
-                    <span className="block text-xs">
-                      {formatTripLengthCz(trip.nights)} · {trip.origin}
-                    </span>
-                  </td>
-                  <td className="px-5 py-4 text-ink/70">{trip.expectedTemperatureC !== undefined ? `${trip.expectedTemperatureC} °C` : "Neznámá"}</td>
-                  <td className="px-5 py-4 font-black text-ink">
-                    {trip.priceCzk !== undefined
-                      ? `${trip.priceCzk.toLocaleString("cs-CZ")} Kč`
-                      : trip.totalPrice !== undefined
-                        ? `${trip.totalPrice.toLocaleString("cs-CZ")} ${trip.currency ?? "Kč"}`
-                        : "Neznámá"}
-                    {trip.priceCzk !== undefined && trip.currency !== undefined && trip.currency !== "CZK" && trip.totalPrice !== undefined && (
-                      <span className="block text-xs font-normal text-ink/45">
-                        {trip.totalPrice.toLocaleString("cs-CZ", { minimumFractionDigits: 2, maximumFractionDigits: 2 })} {trip.currency}
-                      </span>
-                    )}
-                    <span className="block text-xs font-semibold text-ink/50">{priceLabels[trip.priceStatus]}</span>
-                  </td>
-                  <td className="px-5 py-4 text-ink/70">{trip.direct ? "Přímý let" : `Přestup ${trip.layoverHours} h`}</td>
-                  <td className="px-5 py-4">
-                    <ScoreBadge score={trip.score ?? 0} label="score" />
-                    <span className="mt-2 block max-w-44 text-xs font-semibold text-ink/60">{buildScoreSummary(trip)}</span>
-                    {trip.warnings?.[0] && <span className="mt-1 block max-w-44 text-xs font-semibold text-coral">{buildWarningSummary(trip)}</span>}
-                  </td>
-                  <td className="px-5 py-4">
-                    {trip.provider === "duffel" && trip.linkType === "fallback" ? (
-                      <DuffelOfferDetail trip={trip} />
-                    ) : (
-                      <a className="font-bold text-sea hover:text-ink" href={trip.sourceUrl} target="_blank" rel="noreferrer">
-                        {linkLabels[displayLinkType(trip)]}
-                      </a>
-                    )}
-                    <span className="mt-1 block text-xs font-semibold text-ink/55">{trip.source}</span>
-                    <span className="mt-1 block text-xs font-semibold text-ink/55">
-                      {availabilityLabels[trip.availabilityStatus]} · {trip.provider}
-                    </span>
-                    {displayLinkType(trip) === "fallback" && trip.provider !== "duffel" && (
-                      <span className="mt-1 block max-w-44 text-xs font-semibold text-ink/55">
-                        {trip.linkNote ?? "Zdroj zatím neumí přesný odkaz."}
-                      </span>
-                    )}
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
+        <ResultsTable results={displayResults} relaxed={!hasExact} />
       </div>
+
+      <SearchOnlySection results={data.searchOnlyResults} />
+      <SandboxSection results={data.sandboxResults} />
     </section>
   );
 }

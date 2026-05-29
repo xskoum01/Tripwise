@@ -13,7 +13,9 @@ const linkLabels: Record<LinkType, string> = {
 const originLabels: Record<OriginAirport, string> = {
   PRG: "Praha (PRG)",
   VIE: "Vídeň (VIE)",
+  BTS: "Bratislava (BTS)",
   BRQ: "Brno (BRQ)",
+  OSR: "Ostrava (OSR)",
   PED: "Pardubice (PED)",
 };
 
@@ -121,6 +123,9 @@ export function TripCard({ trip, featured = false, relaxed = false }: { trip: It
           <span className="rounded-full bg-ink/5 px-3 py-1 text-xs font-semibold text-ink/70">{availabilityLabels[trip.availabilityStatus]}</span>
           <span className="rounded-full bg-ink/5 px-3 py-1 text-xs font-semibold text-ink/70">{priceLabels[trip.priceStatus]}</span>
           <span className="rounded-full bg-sea/10 px-3 py-1 text-xs font-semibold text-sea">{buildScoreSummary(trip)}</span>
+          {trip.provider === "ryanair-unofficial" && (
+            <span className="rounded-full bg-amber-100 px-3 py-1 text-xs font-semibold text-amber-700">Neoficiální zdroj</span>
+          )}
           {trip.warnings?.map((warning) => (
             <span key={warning} className="rounded-full bg-coral/10 px-3 py-1 text-xs font-semibold text-coral">
               Pozor: {warning}
@@ -130,6 +135,15 @@ export function TripCard({ trip, featured = false, relaxed = false }: { trip: It
         <div className="flex flex-col gap-1 sm:items-end">
           {trip.provider === "duffel" && trip.linkType === "fallback" ? (
             <DuffelOfferDetail trip={trip} />
+          ) : trip.provider === "ryanair-unofficial" ? (
+            <a
+              href={trip.sourceUrl}
+              target="_blank"
+              rel="noreferrer"
+              className="inline-flex min-h-10 items-center justify-center rounded-lg bg-amber-500 px-4 py-2 text-sm font-bold text-white transition hover:bg-amber-600"
+            >
+              Ověřit u Ryanairu
+            </a>
           ) : (
             <a
               href={trip.sourceUrl}

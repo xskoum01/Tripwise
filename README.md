@@ -1,20 +1,32 @@
 # Tripwise
 
-Tripwise is a Czech travel recommendation MVP for comparing trips by value, not only by the cheapest fare. Users describe a travel wish, Tripwise parses it into structured filters, queries enabled providers, normalizes results, scores them, and explains the tradeoffs.
+Tripwise is a personal trip candidate finder for Czech travelers. It parses a natural-language wish into structured filters, queries enabled providers, normalizes results, scores them, and explains the tradeoffs.
+
+## Strategy
+
+Tripwise is primarily built for **personal low-cost trip hunting**, not as a commercial booking platform.
+
+- It does not guarantee final prices. Every result must be verified directly at the source before purchase.
+- Unofficial low-cost providers (Ryanair unofficial) are **personal-use only** and disabled by default. They discover fares using public endpoints — not verified bookable offers.
+- Duffel **test mode** (token prefix `duffel_test_`) returns sandbox data only. These results are not real flights and are excluded from primary recommendations by default (`SHOW_DUFFEL_TEST_RESULTS=false`). Use test mode for API integration development only.
+- Duffel **live mode** (token prefix `duffel_live_`) returns real verified offers.
+- No scraping, no browser automation, no CAPTCHA bypass, no booking or payment flow is implemented anywhere.
 
 ## Provider Architecture
 
 The search service uses provider adapters behind `TravelSourceAdapter`. Each adapter returns a `ProviderSearchResult` with `success`, `skipped`, or `error`, so one provider cannot break the whole search. Results are normalized into `ItineraryOption`, optionally enriched with weather, deduplicated, filtered, scored, and returned with provider statuses and warnings.
 
-Current provider modules:
+Provider priority (personal low-cost use case first):
 
-- `skyscanner-live`: skeleton for Skyscanner Live Prices verified/bookable results.
-- `skyscanner-indicative`: skeleton for Skyscanner Indicative Prices inspiration results.
-- `duffel`: skeleton for Duffel offer search. Booking/order creation is not implemented.
-- `kiwi`: skeleton for official Kiwi/Tequila API access only.
-- `ryanair-deeplink`: search-link support only. It never scrapes and never verifies availability.
-- `open-meteo`: best-effort weather/climate enrichment.
-- `mock`: explicit demo provider, disabled by default.
+1. **`ryanair-unofficial`** — personal-use only, disabled by default. Uses Ryanair's public fare-finder endpoint to discover round-trip fares over a date range. Results are always `search` / `estimated` — never `verified`. Always shows "Neoficiální zdroj" badge. Enable with `ENABLE_RYANAIR_UNOFFICIAL_PROVIDER=true`.
+2. **`ryanair-deeplink`** — search-link support only. Never scrapes, never verifies availability.
+3. **`kiwi`** — skeleton for official Kiwi/Tequila API. Only official API responses; no scraping.
+4. **`skyscanner-live`** — skeleton for Skyscanner Live Prices verified/bookable results.
+5. **`skyscanner-indicative`** — skeleton for Skyscanner Indicative Prices inspiration results.
+6. **`duffel` (live)** — Duffel offer search with live verified results. Token prefix `duffel_live_`. Booking/order creation is not implemented.
+7. **`duffel` (test)** — Sandbox data only. Token prefix `duffel_test_`. Excluded from primary recommendations by default. Use for API integration development.
+8. **`open-meteo`** — best-effort weather/climate enrichment.
+9. **`mock`** — explicit demo provider, disabled by default.
 
 ## Environment Variables
 
@@ -31,6 +43,16 @@ KIWI_API_KEY=
 
 ENABLE_MOCK_PROVIDER=false
 OPEN_METEO_ENABLED=true
+
+# Unofficial Ryanair fare finder — personal use only, disabled by default.
+# Results are never verified. Always shown with "Neoficiální zdroj" badge.
+ENABLE_RYANAIR_UNOFFICIAL_PROVIDER=false
+ALLOW_UNOFFICIAL_PROVIDERS_IN_PRODUCTION=false
+
+# Duffel test mode control.
+# When DUFFEL_ACCESS_TOKEN starts with 'duffel_test_', results are sandbox data.
+# Set to true only for integration development — sandbox results are not real offers.
+SHOW_DUFFEL_TEST_RESULTS=false
 ```
 
 API keys are read only on the server and are never exposed to client components.
@@ -76,9 +98,27 @@ To add Duffel, set `DUFFEL_ACCESS_TOKEN`. The adapter is prepared for offer sear
 
 To add Kiwi, set `KIWI_API_KEY`. Tripwise should use only official API responses and must not rely on unofficial scraping.
 
-## Why Ryanair Scraping Is Not Implemented
+## Ryanair Unofficial Provider
 
-Tripwise does not scrape Ryanair. Ryanair support is limited to generated search/deep links or future authorized provider results. Generated Ryanair links are marked as `search`, not verified offers, because the provider may still show no flight or changed prices for the selected date.
+`ryanair-unofficial` is a personal-use adapter that calls Ryanair's public fare-finder JSON endpoint (the same endpoint their website uses). It is **disabled by default** and must be opted in explicitly.
+
+Rules that always apply:
+
+- Results are always `availabilityStatus: "search"` and `priceStatus: "estimated"` — never `verified`.
+- The UI always shows "Neoficiální zdroj" badge and a warning that availability and final price must be verified directly with Ryanair.
+- No browser automation, no CAPTCHA bypass, no DOM scraping.
+- No booking or payment flow is implemented.
+- Disabled in production unless `ALLOW_UNOFFICIAL_PROVIDERS_IN_PRODUCTION=true` is also set.
+
+To enable for local personal use:
+
+```bash
+ENABLE_RYANAIR_UNOFFICIAL_PROVIDER=true
+```
+
+## Why Ryanair Verified Results Are Not Implemented
+
+Tripwise does not have access to Ryanair's official partner API. The `ryanair-deeplink` adapter generates search links only. The `ryanair-unofficial` adapter is a personal-use fallback using the public fare-finder endpoint, not an official integration.
 
 ## Result Statuses
 
@@ -166,9 +206,19 @@ If the UI shows "Nic jsme nenašli" and provider details indicate all real provi
 3. Restart dev server after `.env.local` changes: `npm run dev`
 4. Check provider status at `/api/providers/status`
 
+## Future Provider Backlog
+
+The following providers are on the personal-use backlog. None are implemented yet. Scraping, browser automation, or CAPTCHA bypass will never be used.
+
+- **Wizz Air personal provider** — Wizz Air exposes a public availability/pricing JSON endpoint similar to Ryanair's fare-finder. A personal-use adapter following the same pattern as `ryanair-unofficial` could be added. Always personal-use only, never verified.
+- **Smartwings search/manual verification** — Smartwings does not have a documented public API. A deep-link / manual-verification approach (similar to `ryanair-deeplink`) would be the only ethical option.
+- **Google Flights verification link** — A helper that builds a Google Flights search URL for a given route/date could be used as a verification shortcut for the user, not as a data source.
+- **Skyscanner manual verification link** — Similar to Google Flights, a Skyscanner search URL builder for user-side verification. Distinct from the official Skyscanner API adapter.
+
 ## Current Limitations
 
-- No scraping.
+- No scraping, no browser automation, no CAPTCHA bypass.
 - No booking, payment, authentication, or database.
 - Real provider adapters are conservative skeletons until API contracts and credentials are available.
 - Mock results are disabled by default and shown only as demo data.
+- Duffel test mode results are excluded from primary recommendations by default.
