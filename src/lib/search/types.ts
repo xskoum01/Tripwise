@@ -138,6 +138,7 @@ export type ItineraryOption = {
   deepLink?: string;
   linkType: LinkType;
   linkNote?: string;
+  linkConfidence?: "high" | "medium" | "low";
   availabilityStatus: AvailabilityStatus;
   availabilityNote?: string;
   weatherConfidence?: WeatherConfidence;

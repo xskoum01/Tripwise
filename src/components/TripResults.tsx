@@ -1,9 +1,10 @@
+import { CopyRouteButton } from "./CopyRouteButton";
 import { DuffelOfferDetail } from "./DuffelOfferDetail";
 import { FilterSummary } from "./FilterSummary";
 import { ScoreBadge } from "./ScoreBadge";
 import { TripCard } from "./TripCard";
 import { buildScoreSummary, buildWarningSummary } from "./scoreCopy";
-import { formatDateRangeCz, formatTripLengthCz } from "@/lib/format/date";
+import { formatDateCz, formatDateRangeCz, formatTripLengthCz } from "@/lib/format/date";
 import type { ItineraryOption, LinkType, PostProcessDiagnostics, SearchResponse } from "@/lib/search/types";
 
 const linkLabels: Record<LinkType, string> = {
@@ -133,25 +134,53 @@ function ResultsTable({ results, relaxed = false }: { results: ItineraryOption[]
   );
 }
 
+const linkKindBadge: Record<string, { label: string; cls: string }> = {
+  search:   { label: "hledání",        cls: "bg-sea/10 text-sea" },
+  fallback: { label: "web",            cls: "bg-ink/5 text-ink/45" },
+  exact:    { label: "přesný odkaz",   cls: "bg-mint/30 text-ink" },
+};
+
+const confidenceBadge: Record<string, string> = {
+  high:   "text-sea/70",
+  medium: "text-amber-600/70",
+  low:    "text-ink/35",
+};
+
+function buildCopyText(trip: ItineraryOption, wish?: string): string {
+  const lines = [
+    `${trip.airline}`,
+    `${trip.origin} → ${trip.destinationAirportCode} (${trip.destination}, ${trip.country ?? ""})`,
+    `Odlet: ${formatDateCz(trip.dates.depart)}  Zpáteční: ${formatDateCz(trip.dates.return)}`,
+    `Cestující: ${trip.passengers ?? 1}`,
+  ];
+  if (wish) lines.push(`Dotaz: "${wish}"`);
+  lines.push("Zdroj: Tripwise – ověřovací odkaz, cena nebyla zjištěna automaticky.");
+  return lines.join("\n");
+}
+
 // Collapsible section for search-only airline verification links.
 // These are NOT priced results — they exist so the user can manually check airlines
 // that Tripwise cannot query automatically.
-function SearchOnlySection({ results }: { results: ItineraryOption[] }) {
+function SearchOnlySection({ results, wish }: { results: ItineraryOption[]; wish?: string }) {
   if (results.length === 0) return null;
 
   // Group by airline for cleaner display
   const byAirline = new Map<string, ItineraryOption[]>();
   for (const r of results) {
-    const key = r.airline;
-    if (!byAirline.has(key)) byAirline.set(key, []);
-    byAirline.get(key)!.push(r);
+    if (!byAirline.has(r.airline)) byAirline.set(r.airline, []);
+    byAirline.get(r.airline)!.push(r);
   }
+
+  const searchCount = results.filter((r) => r.linkType === "search").length;
+  const homepageCount = results.length - searchCount;
 
   return (
     <details className="overflow-hidden rounded-lg border border-ink/10 bg-white/80 shadow-soft" open>
       <summary className="cursor-pointer select-none border-b border-ink/10 px-5 py-3">
         <span className="text-xs font-bold uppercase tracking-wide text-ink/60">Další zdroje k ručnímu ověření</span>
-        <span className="ml-2 text-xs font-semibold text-ink/40">({results.length} dopravců / tras)</span>
+        <span className="ml-2 text-xs font-semibold text-ink/40">
+          {byAirline.size} dopravců · {searchCount} hledání · {homepageCount} web
+        </span>
         <p className="mt-1 text-xs font-semibold text-ink/50">
           Tripwise u těchto dopravců automaticky nezískal cenu. Ověř ji ručně přímo u aerolinky.
         </p>
@@ -159,30 +188,46 @@ function SearchOnlySection({ results }: { results: ItineraryOption[] }) {
       <div className="divide-y divide-ink/5">
         {[...byAirline.entries()].map(([airlineName, trips]) => (
           <div key={airlineName} className="px-5 py-3">
-            <p className="text-xs font-bold text-ink/70">{airlineName}</p>
-            <div className="mt-2 flex flex-wrap gap-2">
-              {trips.map((trip) => (
-                <a
-                  key={trip.id}
-                  href={trip.sourceUrl}
-                  target="_blank"
-                  rel="noreferrer"
-                  className="inline-flex items-center gap-1.5 rounded-full border border-ink/10 bg-slate-50 px-3 py-1.5 text-xs font-semibold text-ink/70 hover:border-sea/30 hover:bg-sea/5 hover:text-sea"
-                >
-                  <span>{trip.origin} → {trip.destinationAirportCode}</span>
-                  <span className="text-ink/40">·</span>
-                  <span>{trip.destination}</span>
-                  <span className="ml-1 rounded bg-ink/5 px-1 py-0.5 text-[10px] font-bold uppercase text-ink/40">
-                    {trip.linkType === "search" ? "hledání" : "web"}
-                  </span>
-                </a>
-              ))}
+            <p className="mb-2 text-xs font-bold text-ink/70">{airlineName}</p>
+            <div className="space-y-1.5">
+              {trips.map((trip) => {
+                const kind = trip.linkType === "fallback" ? "fallback" : "search";
+                const badge = linkKindBadge[kind];
+                const confCls = confidenceBadge[trip.linkConfidence ?? "low"];
+                return (
+                  <div key={trip.id} className="flex items-center gap-2 text-xs">
+                    <a
+                      href={trip.sourceUrl}
+                      target="_blank"
+                      rel="noreferrer"
+                      className="inline-flex items-center gap-1.5 rounded border border-ink/10 bg-slate-50 px-2.5 py-1 font-semibold text-ink/70 hover:border-sea/30 hover:bg-sea/5 hover:text-sea"
+                    >
+                      <span className="font-bold">{trip.origin} → {trip.destinationAirportCode}</span>
+                      <span className="text-ink/40">·</span>
+                      <span>{trip.destination}</span>
+                      <span className={`ml-1 rounded px-1 py-0.5 text-[10px] font-bold uppercase ${badge.cls}`}>
+                        {badge.label}
+                      </span>
+                      {trip.linkConfidence && (
+                        <span className={`text-[10px] font-bold ${confCls}`} title={`Spolehlivost odkazu: ${trip.linkConfidence}`}>
+                          {trip.linkConfidence === "high" ? "✓" : trip.linkConfidence === "medium" ? "~" : "?"}
+                        </span>
+                      )}
+                    </a>
+                    <span className="text-ink/35">
+                      {formatDateCz(trip.dates.depart)} – {formatDateCz(trip.dates.return)}
+                    </span>
+                    <CopyRouteButton text={buildCopyText(trip, wish)} />
+                  </div>
+                );
+              })}
             </div>
+            <p className="mt-2 text-[11px] font-semibold text-ink/40">{trips[0]?.availabilityNote}</p>
           </div>
         ))}
       </div>
       <p className="border-t border-ink/5 px-5 py-2 text-[11px] font-semibold text-ink/40">
-        Pouze ověřovací odkazy · bez garance ceny nebo dostupnosti · vždy ověř přímo u dopravce
+        Pouze ověřovací odkazy · bez garance ceny nebo dostupnosti · vždy ověř přímo u dopravce · ✓ vysoká / ~ střední / ? nízká spolehlivost odkazu
       </p>
     </details>
   );
@@ -246,7 +291,7 @@ export function TripResults({ data }: { data: SearchResponse }) {
           </div>
 
           <TechnicalDetails warnings={data.providerWarnings} />
-          <SearchOnlySection results={data.searchOnlyResults} />
+          <SearchOnlySection results={data.searchOnlyResults} wish={data.parsedRequest.wish} />
           <SandboxSection results={data.sandboxResults} />
         </section>
       );
@@ -262,7 +307,7 @@ export function TripResults({ data }: { data: SearchResponse }) {
           </div>
           <TechnicalDetails warnings={data.providerWarnings} />
         </div>
-        <SearchOnlySection results={data.searchOnlyResults} />
+        <SearchOnlySection results={data.searchOnlyResults} wish={data.parsedRequest.wish} />
         <SandboxSection results={data.sandboxResults} />
       </section>
     );
@@ -325,7 +370,7 @@ export function TripResults({ data }: { data: SearchResponse }) {
         <ResultsTable results={displayResults} relaxed={!hasExact} />
       </div>
 
-      <SearchOnlySection results={data.searchOnlyResults} />
+      <SearchOnlySection results={data.searchOnlyResults} wish={data.parsedRequest.wish} />
       <SandboxSection results={data.sandboxResults} />
     </section>
   );

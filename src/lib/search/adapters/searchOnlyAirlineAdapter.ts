@@ -95,6 +95,7 @@ function buildCandidate(
     priceStatus: "unknown",
     sourceConfidence: "search-only",
     linkType: verLink.linkKind === "homepage" ? "fallback" : "search",
+    linkConfidence: verLink.confidence,
     linkNote: verLink.note,
     availabilityNote: `Pouze ověřovací odkaz. Tripwise u tohoto dopravce nezískal cenu automaticky.`,
     origin,
@@ -160,6 +161,9 @@ export class SearchOnlyAirlineAdapter implements TravelSourceAdapter {
     const countByOrigin = new Map<string, number>();
     const countByDest = new Map<string, number>();
     const results: ItineraryOption[] = [];
+    let homepageCount = 0;
+    let searchCount = 0;
+    let limitHits = 0;
 
     // Filter route candidates relevant to this request
     const relevantCandidates = ROUTE_CANDIDATES.filter((rc) => {
@@ -168,9 +172,6 @@ export class SearchOnlyAirlineAdapter implements TravelSourceAdapter {
       return rc.destinationModes.includes(destMode) || rc.destinationModes.includes("any");
     });
 
-    // Skip airlines that already have a priced adapter enabled for this search
-    // (Ryanair is handled by ryanair-unofficial when enabled; still include it
-    //  here if ryanair-unofficial is disabled, so the user gets at least a link)
     for (const rc of relevantCandidates) {
       if (results.length >= MAX_TOTAL) break;
 
@@ -182,9 +183,15 @@ export class SearchOnlyAirlineAdapter implements TravelSourceAdapter {
 
       for (const dest of destinations) {
         if (results.length >= MAX_TOTAL) break;
-        if ((countByAirline.get(rc.airlineId) ?? 0) >= MAX_PER_AIRLINE) break;
-        if ((countByOrigin.get(origin) ?? 0) >= MAX_PER_ORIGIN) break;
-        if ((countByDest.get(dest.code) ?? 0) >= MAX_PER_DESTINATION) continue;
+        const airlineCount = countByAirline.get(rc.airlineId) ?? 0;
+        const originCount = countByOrigin.get(origin) ?? 0;
+        const destCount = countByDest.get(dest.code) ?? 0;
+
+        if (airlineCount >= MAX_PER_AIRLINE || originCount >= MAX_PER_ORIGIN || destCount >= MAX_PER_DESTINATION) {
+          limitHits++;
+          if (airlineCount >= MAX_PER_AIRLINE) break;
+          continue;
+        }
 
         const candidate = buildCandidate(
           rc.airlineId,
@@ -198,20 +205,36 @@ export class SearchOnlyAirlineAdapter implements TravelSourceAdapter {
         );
 
         results.push(candidate);
-        countByAirline.set(rc.airlineId, (countByAirline.get(rc.airlineId) ?? 0) + 1);
-        countByOrigin.set(origin, (countByOrigin.get(origin) ?? 0) + 1);
-        countByDest.set(dest.code, (countByDest.get(dest.code) ?? 0) + 1);
+        countByAirline.set(rc.airlineId, airlineCount + 1);
+        countByOrigin.set(origin, originCount + 1);
+        countByDest.set(dest.code, destCount + 1);
+
+        if (candidate.linkType === "fallback") homepageCount++;
+        else searchCount++;
       }
     }
+
+    if (process.env.NODE_ENV !== "production") {
+      console.info(
+        `[airline-search-link] ${results.length} candidates · ${searchCount} search links · ${homepageCount} homepage links · ${limitHits} limit hits`,
+      );
+      for (const [id, count] of countByAirline.entries()) {
+        console.info(`  ${id}: ${count}`);
+      }
+    }
+
+    const diagLine = `airline-search-link: ${results.length} odkaz${results.length === 1 ? "" : "ů"} · ${searchCount} hledání · ${homepageCount} homepage`;
 
     return {
       provider: this.name,
       status: "success",
       results,
-      warnings:
-        results.length > 0
-          ? ["Sekce ověřovacích odkazů neobsahuje ceny — cenu a dostupnost ověř přímo u každého dopravce."]
-          : ["Airline search-link provider: no candidates matched the request."],
+      warnings: results.length > 0
+        ? [
+            "Sekce ověřovacích odkazů neobsahuje ceny — cenu a dostupnost ověř přímo u každého dopravce.",
+            diagLine,
+          ]
+        : ["Airline search-link provider: no candidates matched the request."],
     };
   }
 }

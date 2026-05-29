@@ -75,15 +75,27 @@ export function extractIataFromFlightNumber(flightNumber?: string): string | und
   return match?.[1];
 }
 
-// ── New structured verification link builder ─────────────────────────────────
+// ── Structured verification link builder ─────────────────────────────────────
+//
+// confidence levels:
+//   high   — URL format confirmed stable; used in production by the airline's own frontend.
+//   medium — URL format observed and likely stable but not formally documented.
+//   low    — Best effort; format may change without notice. Useful but unverified.
+//
+// linkKind:
+//   exact    — confirmed bookable offer URL (never used here — requires live offer ID).
+//   search   — prefilled with route/date; opens airline search page.
+//   homepage — only airline homepage; user must enter all details manually.
+
+export type LinkConfidence = "high" | "medium" | "low";
 
 export type AirlineVerificationInput = {
   airlineId: string;
   carrierName?: string;
   origin: string;
   destination: string;
-  departDate: string;
-  returnDate: string;
+  departDate: string;  // YYYY-MM-DD
+  returnDate: string;  // YYYY-MM-DD
   adults?: number;
   currency?: string;
   locale?: string;
@@ -93,58 +105,290 @@ export type AirlineVerificationLink = {
   url: string;
   label: string;
   linkKind: "homepage" | "search" | "exact";
+  confidence: LinkConfidence;
   note: string;
 };
 
-const HOMEPAGE_NOTE = "Otevře web aerolinky. Dostupnost a cenu ověř ručně.";
-const SEARCH_NOTE = "Otevře vyhledávání u aerolinky. Tripwise nezískal cenu automaticky — ověř ručně.";
+// ── Date format helpers ──────────────────────────────────────────────────────
 
-// Ryanair: build a prefilled trip-select search URL.
-function ryanairSearchLink(input: AirlineVerificationInput): AirlineVerificationLink {
-  const params = new URLSearchParams({
-    adults: String(input.adults ?? 1),
-    teens: "0",
-    children: "0",
-    infants: "0",
-    dateOut: input.departDate,
-    dateIn: input.returnDate,
-    originIata: input.origin,
-    destinationIata: input.destination,
-    isConnectedFlight: "false",
-    discount: "0",
-    promoCode: "",
-    isReturn: "true",
-  });
-  return {
-    url: `https://www.ryanair.com/cz/cs/trip/flights/select?${params.toString()}`,
-    label: "Ověřit hledání u Ryanairu",
-    linkKind: "search",
-    note: SEARCH_NOTE,
-  };
+// YYYY-MM-DD → DD/MM/YYYY  (Pegasus, Vueling)
+function toDDMMYYYYSlash(iso: string): string {
+  const [y, m, d] = iso.split("-");
+  return `${d}/${m}/${y}`;
 }
 
-// Homepage fallback used for airlines without a stable search URL pattern.
+// YYYY-MM-DD → DDMMYYYY  (Transavia path segments)
+function toDDMMYYYYRaw(iso: string): string {
+  const [y, m, d] = iso.split("-");
+  return `${d}${m}${y}`;
+}
+
+// YYYY-MM-DD → DD.MM.YYYY  (Condor)
+function toDDMMYYYYDot(iso: string): string {
+  const [y, m, d] = iso.split("-");
+  return `${d}.${m}.${y}`;
+}
+
+// YYYY-MM-DD → DD-Mon-YYYY  e.g. 01-Jul-2026  (Jet2)
+function toJet2Date(iso: string): string {
+  const MON = ["Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"];
+  const [y, m, d] = iso.split("-");
+  return `${d}-${MON[Number(m) - 1]}-${y}`;
+}
+
+// ── Per-airline builders ──────────────────────────────────────────────────────
+
+const SEARCH_NOTE = "Otevře vyhledávání u aerolinky. Tripwise nezískal cenu automaticky — ověř ručně.";
+const HOMEPAGE_NOTE = "Otevře web aerolinky. Vyplň trasu a datum ručně.";
+
 function homepageLink(airlineId: string): AirlineVerificationLink {
   const airline = AIRLINE_BY_ID.get(airlineId);
   return {
     url: airline?.websiteUrl ?? "https://www.google.com/travel/flights",
     label: `Otevřít web ${airline?.name ?? airlineId}`,
     linkKind: "homepage",
+    confidence: "high",
     note: HOMEPAGE_NOTE,
   };
 }
 
+function searchLink(url: string, label: string, confidence: LinkConfidence): AirlineVerificationLink {
+  return { url, label, linkKind: "search", confidence, note: SEARCH_NOTE };
+}
+
+// ── Individual airline link builders ─────────────────────────────────────────
+
+function ryanair(i: AirlineVerificationInput): AirlineVerificationLink {
+  const p = new URLSearchParams({
+    adults: String(i.adults ?? 1),
+    teens: "0", children: "0", infants: "0",
+    dateOut: i.departDate,
+    dateIn: i.returnDate,
+    originIata: i.origin,
+    destinationIata: i.destination,
+    isConnectedFlight: "false",
+    discount: "0", promoCode: "",
+    isReturn: "true",
+  });
+  return searchLink(`https://www.ryanair.com/cz/cs/trip/flights/select?${p}`, "Ověřit u Ryanairu", "high");
+}
+
+function wizz(i: AirlineVerificationInput): AirlineVerificationLink {
+  // Path: /en-gb/booking/select-flight/{org}/{dst}/{dep}/{ret}/{adt}/{chd}/{inf}/{wdc}/all
+  const adults = i.adults ?? 1;
+  return searchLink(
+    `https://wizzair.com/en-gb/booking/select-flight/${i.origin}/${i.destination}/${i.departDate}/${i.returnDate}/${adults}/0/0/0/all`,
+    "Ověřit u Wizz Air",
+    "medium",
+  );
+}
+
+function easyjet(i: AirlineVerificationInput): AirlineVerificationLink {
+  const p = new URLSearchParams({
+    departDate: i.departDate,
+    returnDate: i.returnDate,
+  });
+  const org = i.origin.toLowerCase();
+  const dst = i.destination.toLowerCase();
+  return searchLink(
+    `https://www.easyjet.com/en/cheap-flights/${org}/${dst}?${p}`,
+    "Ověřit u easyJet",
+    "medium",
+  );
+}
+
+function pegasus(i: AirlineVerificationInput): AirlineVerificationLink {
+  const p = new URLSearchParams({
+    adultCount: String(i.adults ?? 1),
+    childCount: "0",
+    currency: i.currency ?? "EUR",
+    departureDate: toDDMMYYYYSlash(i.departDate),
+    destinationCode: i.destination,
+    originCode: i.origin,
+    returnDate: toDDMMYYYYSlash(i.returnDate),
+  });
+  return searchLink(`https://book.flypgs.com/en/round-trip?${p}`, "Ověřit u Pegasu", "medium");
+}
+
+function norwegian(i: AirlineVerificationInput): AirlineVerificationLink {
+  const p = new URLSearchParams({
+    D_City: i.origin,
+    D_Date: i.departDate,
+    R_City: i.destination,
+    R_Date: i.returnDate,
+    Type: "roundtrip",
+    adult: String(i.adults ?? 1),
+    child: "0",
+    infant: "0",
+    young: "0",
+    senior: "0",
+  });
+  return searchLink(
+    `https://www.norwegian.com/en/booking/flight/search/?${p}`,
+    "Ověřit u Norwegian",
+    "medium",
+  );
+}
+
+function eurowings(i: AirlineVerificationInput): AirlineVerificationLink {
+  const p = new URLSearchParams({
+    origin: i.origin,
+    destination: i.destination,
+    adult: String(i.adults ?? 1),
+    departure: i.departDate,
+    return: i.returnDate,
+    cabinClass: "ECONOMY",
+    trip: "roundtrip",
+  });
+  return searchLink(
+    `https://www.eurowings.com/en/booking/flights/search.html?${p}`,
+    "Ověřit u Eurowings",
+    "low",
+  );
+}
+
+function vueling(i: AirlineVerificationInput): AirlineVerificationLink {
+  const p = new URLSearchParams({
+    origin: i.origin,
+    destination: i.destination,
+    departure: toDDMMYYYYSlash(i.departDate),
+    arrival: toDDMMYYYYSlash(i.returnDate),
+    adults: String(i.adults ?? 1),
+    children: "0",
+    infants: "0",
+    trip: "R",
+  });
+  return searchLink(`https://www.vueling.com/en/book-tickets/search?${p}`, "Ověřit u Vueling", "low");
+}
+
+function transavia(i: AirlineVerificationInput): AirlineVerificationLink {
+  const dep = toDDMMYYYYRaw(i.departDate);
+  const ret = toDDMMYYYYRaw(i.returnDate);
+  const adults = i.adults ?? 1;
+  return searchLink(
+    `https://www.transavia.com/en-EU/book-flights/return/departure-${i.origin}/arrival-${i.destination}/date-${dep}/return-date-${ret}/passengers-${adults}-0-0/`,
+    "Ověřit u Transavia",
+    "low",
+  );
+}
+
+function sunexpress(i: AirlineVerificationInput): AirlineVerificationLink {
+  const p = new URLSearchParams({
+    from: i.origin,
+    to: i.destination,
+    departure: i.departDate,
+    returndate: i.returnDate,
+    adults: String(i.adults ?? 1),
+    trip: "return",
+  });
+  return searchLink(`https://www.sunexpress.com/en/booking/flight-search/?${p}`, "Ověřit u SunExpress", "low");
+}
+
+function airbaltic(i: AirlineVerificationInput): AirlineVerificationLink {
+  const p = new URLSearchParams({
+    origin: i.origin,
+    destination: i.destination,
+    departureDate: i.departDate,
+    returnDate: i.returnDate,
+    adult: String(i.adults ?? 1),
+    child: "0",
+    infant: "0",
+    tripType: "RETURN",
+  });
+  return searchLink(`https://www.airbaltic.com/en/home?${p}`, "Ověřit u airBaltic", "low");
+}
+
+function smartwings(i: AirlineVerificationInput): AirlineVerificationLink {
+  const p = new URLSearchParams({
+    from: i.origin,
+    to: i.destination,
+    dep: i.departDate,
+    ret: i.returnDate,
+    adt: String(i.adults ?? 1),
+  });
+  return searchLink(`https://booking.smartwings.com/?${p}`, "Ověřit u Smartwings", "low");
+}
+
+function condor(i: AirlineVerificationInput): AirlineVerificationLink {
+  const p = new URLSearchParams({
+    "s.depAPorts": i.origin,
+    "s.arrAPorts": i.destination,
+    "s.dep": toDDMMYYYYDot(i.departDate),
+    "s.arr": toDDMMYYYYDot(i.returnDate),
+    "s.pax.a": String(i.adults ?? 1),
+  });
+  return searchLink(`https://www.condor.com/en/flight-booking/flight-search.jsp?${p}`, "Ověřit u Condor", "low");
+}
+
+function ajet(i: AirlineVerificationInput): AirlineVerificationLink {
+  const p = new URLSearchParams({
+    from: i.origin,
+    to: i.destination,
+    date: i.departDate,
+    returnDate: i.returnDate,
+    adults: String(i.adults ?? 1),
+    tripType: "RT",
+  });
+  return searchLink(`https://www.ajet.com/en/booking/search?${p}`, "Ověřit u AJet", "low");
+}
+
+function volotea(i: AirlineVerificationInput): AirlineVerificationLink {
+  const p = new URLSearchParams({
+    origin: i.origin,
+    destination: i.destination,
+    departure: i.departDate,
+    return: i.returnDate,
+    adults: String(i.adults ?? 1),
+    children: "0",
+    infants: "0",
+  });
+  return searchLink(`https://www.volotea.com/en/flights/?${p}`, "Ověřit u Volotea", "low");
+}
+
+function jet2(i: AirlineVerificationInput): AirlineVerificationLink {
+  const p = new URLSearchParams({
+    from: i.origin,
+    to: i.destination,
+    depart: toJet2Date(i.departDate),
+    return: toJet2Date(i.returnDate),
+    adults: String(i.adults ?? 1),
+  });
+  return searchLink(`https://www.jet2.com/cheapflights?${p}`, "Ověřit u Jet2", "low");
+}
+
+// ── Main builder ──────────────────────────────────────────────────────────────
+
 /**
- * Builds the best available verification link for a given airline and route.
- * Never marks a result as "exact" unless a confirmed bookable offer URL is known.
+ * Builds the best available verification link for the given airline and route.
+ *
+ * Rules:
+ *   - linkKind is never "exact" — we have no confirmed bookable offer IDs.
+ *   - Airlines with stable known URL formats get "search" links.
+ *   - Airlines where the URL format is unverified get "low" confidence search links.
+ *   - Charter/tour-operator airlines with no reliable public booking URL get homepage.
  */
 export function buildAirlineVerificationLink(input: AirlineVerificationInput): AirlineVerificationLink {
   try {
     switch (input.airlineId) {
-      case "ryanair":
-        return ryanairSearchLink(input);
-      // All other airlines use homepage until a stable search URL pattern is confirmed.
-      // Add per-airline search builders here when formats are validated.
+      case "ryanair":    return ryanair(input);
+      case "wizz":       return wizz(input);
+      case "easyjet":    return easyjet(input);
+      case "pegasus":    return pegasus(input);
+      case "norwegian":  return norwegian(input);
+      case "eurowings":  return eurowings(input);
+      case "vueling":    return vueling(input);
+      case "transavia":  return transavia(input);
+      case "sunexpress": return sunexpress(input);
+      case "airbaltic":  return airbaltic(input);
+      case "smartwings": return smartwings(input);
+      case "condor":     return condor(input);
+      case "ajet":       return ajet(input);
+      case "volotea":    return volotea(input);
+      case "jet2":       return jet2(input);
+      // Charter carriers with no reliable public booking URL
+      case "corendon":
+      case "aircairo":
+        return homepageLink(input.airlineId);
       default:
         return homepageLink(input.airlineId);
     }
