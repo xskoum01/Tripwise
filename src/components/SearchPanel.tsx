@@ -1,9 +1,11 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useEffect, useRef } from "react";
 import { FilterSummary } from "./FilterSummary";
 import { TripResults } from "./TripResults";
 import type { OriginAirport, SearchResponse, TravelSearchRequest } from "@/lib/search/types";
+import { useSavedSearches } from "@/lib/savedSearches/useSavedSearches";
+import { SavedSearches } from "./SavedSearches";
 
 type SearchErrorResponse = {
   error?: string;
@@ -17,8 +19,6 @@ const originOptions: Array<{ code: OriginAirport; label: string }> = [
   { code: "PED", label: "Pardubice" },
 ];
 
-const savedSearches = ["Moře do 7 000 Kč z Prahy", "Listopad u moře z Pardubic", "City break s přímým letem"];
-
 export function SearchPanel() {
   const [wish, setWish] = useState("Chci v červnu na 3-5 dní k moři do 7 000 Kč, odlet Praha nebo Vídeň, nechci odlet před 6 ráno.");
   const [origins, setOrigins] = useState<OriginAirport[]>(["PRG", "VIE"]);
@@ -29,8 +29,45 @@ export function SearchPanel() {
   const [results, setResults] = useState<SearchResponse | null>(null);
   const [editing, setEditing] = useState(false);
 
+  const { searches, save, remove, update } = useSavedSearches();
+  // useRef instead of useState: mutating a ref inside an effect is allowed and
+  // avoids the react-hooks/set-state-in-effect lint rule. No re-render needed
+  // when tracking which saved search triggered the current search.
+  const activeSavedIdRef = useRef<string | null>(null);
+  const [saveSuccess, setSaveSuccess] = useState(false);
+
   const hasResults = Boolean(results);
   const showSearchForm = !hasResults || editing;
+
+  function handleSave() {
+    save(wish);
+    setSaveSuccess(true);
+    setTimeout(() => setSaveSuccess(false), 2000);
+  }
+
+  function handleRunSaved(savedWish: string, savedId: string) {
+    activeSavedIdRef.current = savedId;
+    setWish(savedWish);
+    void handleSearch(savedWish);
+  }
+
+  useEffect(() => {
+    const savedId = activeSavedIdRef.current;
+    if (!results || !savedId) return;
+    const best = results.exactResults?.[0] ?? results.results?.[0];
+    if (best) {
+      update(savedId, {
+        lastRunAt: new Date().toISOString(),
+        lastBestPriceCzk: best.priceCzk,
+        lastBestDestination: best.destination,
+        lastBestDateRange: best.dates
+          ? `${best.dates.depart} – ${best.dates.return}`
+          : undefined,
+      });
+    }
+    // Clearing a ref inside an effect is fine — no setState involved
+    activeSavedIdRef.current = null;
+  }, [results, update]);
 
   function syncControls(request: TravelSearchRequest) {
     setOrigins(request.origins);
@@ -42,12 +79,12 @@ export function SearchPanel() {
     setOrigins((current) => (current.includes(code) ? current.filter((origin) => origin !== code) : [...current, code]));
   }
 
-  async function handleSearch() {
+  async function handleSearch(wishOverride?: string) {
     setLoading(true);
     setError(null);
 
     const payload: Partial<TravelSearchRequest> & { wish: string } = {
-      wish,
+      wish: wishOverride ?? wish,
       origins: origins.length > 0 ? origins : ["PRG", "VIE"],
       maxBudget,
       directOnly,
@@ -176,11 +213,19 @@ export function SearchPanel() {
 
               <button
                 type="button"
-                onClick={handleSearch}
+                onClick={() => void handleSearch()}
                 disabled={loading}
                 className="min-h-11 w-full rounded-lg bg-ink px-4 text-sm font-black text-white transition hover:bg-sea disabled:cursor-not-allowed disabled:opacity-60"
               >
                 {loading ? "Hledám..." : hasResults ? "Aktualizovat výsledky" : "Vyhledat"}
+              </button>
+
+              <button
+                type="button"
+                onClick={handleSave}
+                className="min-h-10 w-full rounded-lg border border-ink/15 bg-slate-50 px-4 text-sm font-bold text-ink/65 transition hover:border-sea/40 hover:bg-mint hover:text-sea"
+              >
+                {saveSuccess ? "Uloženo ✓" : "Uložit hledání"}
               </button>
             </div>
           </div>
@@ -196,8 +241,11 @@ export function SearchPanel() {
       )}
 
       {results && !loading && <TripResults data={results} />}
-      {hasResults && <SavedSearchesStrip />}
-      {!hasResults && <SavedSearchesPanel />}
+
+      <section className="mt-6">
+        <h2 className="mb-3 text-sm font-bold uppercase tracking-wide text-ink/55">Uložená hledání</h2>
+        <SavedSearches searches={searches} onRun={handleRunSaved} onDelete={remove} />
+      </section>
     </div>
   );
 }
@@ -226,38 +274,6 @@ function Hero({ compact }: { compact: boolean }) {
         <Kpi value="Více" label="zdrojů" />
       </div>
     </header>
-  );
-}
-
-function SavedSearchesPanel() {
-  return (
-    <aside className="rounded-lg border border-ink/10 bg-white/85 p-4 shadow-soft">
-      <p className="text-xs font-bold uppercase tracking-wide text-sea">Uložené inspirace</p>
-      <div className="mt-3 flex flex-wrap gap-2">
-        {savedSearches.map((item) => (
-          <button key={item} type="button" className="rounded-full border border-ink/10 bg-slate-50 px-3 py-1 text-xs font-bold text-ink/65">
-            {item}
-          </button>
-        ))}
-      </div>
-    </aside>
-  );
-}
-
-function SavedSearchesStrip() {
-  return (
-    <section className="rounded-lg border border-ink/10 bg-white/80 p-3 shadow-soft">
-      <div className="flex flex-col gap-2 md:flex-row md:items-center">
-        <p className="text-xs font-bold uppercase tracking-wide text-ink/50 md:min-w-32">Uložené inspirace</p>
-        <div className="flex flex-wrap gap-2">
-          {savedSearches.map((item) => (
-            <button key={item} type="button" className="rounded-full border border-ink/10 bg-slate-50 px-3 py-1 text-xs font-bold text-ink/65">
-              {item}
-            </button>
-          ))}
-        </div>
-      </div>
-    </section>
   );
 }
 
