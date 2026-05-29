@@ -1,3 +1,4 @@
+import { AirlineQAPanel } from "./AirlineQAPanel";
 import { CopyRouteButton } from "./CopyRouteButton";
 import { DuffelOfferDetail } from "./DuffelOfferDetail";
 import { FilterSummary } from "./FilterSummary";
@@ -247,19 +248,6 @@ function SearchOnlySection({ results, wish }: { results: ItineraryOption[]; wish
                       </span>
                       <CopyRouteButton text={buildCopyText(trip, wish)} />
                     </div>
-                    {IS_DEV && (
-                      <details className="ml-1">
-                        <summary className="cursor-pointer text-[10px] font-semibold text-ink/30 hover:text-ink/60">
-                          [dev] URL preview
-                        </summary>
-                        <p className="mt-0.5 break-all rounded bg-slate-100 px-2 py-1 font-mono text-[10px] text-ink/50 select-all">
-                          {trip.sourceUrl}
-                        </p>
-                        {trip.linkValidationNote && (
-                          <p className="mt-0.5 text-[10px] text-amber-700/70">{trip.linkValidationNote}</p>
-                        )}
-                      </details>
-                    )}
                   </div>
                 );
               })}
@@ -269,8 +257,9 @@ function SearchOnlySection({ results, wish }: { results: ItineraryOption[]; wish
       </div>
       <p className="border-t border-ink/5 px-5 py-2 text-[11px] font-semibold text-ink/40">
         Pouze ověřovací odkazy · bez garance ceny nebo dostupnosti · vždy ověř přímo u dopravce
-        {" "}· ✓ vysoká / ~ střední / ? nízká spolehlivost · {IS_DEV && "[dev] URL preview dostupné"}
+        {" "}· ✓ vysoká / ~ střední / ? nízká spolehlivost · {IS_DEV && "Dev QA panel níže"}
       </p>
+      {IS_DEV && <AirlineQAPanel results={results} wish={wish} />}
     </details>
   );
 }

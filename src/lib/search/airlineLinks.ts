@@ -341,7 +341,11 @@ export function buildAirlineVerificationLink(input: AirlineVerificationInput): A
     // If we know this link is broken, skip straight to homepage
     const validation = AIRLINE_LINK_VALIDATION[input.airlineId];
     if (validation?.validationStatus === "manual-broken") {
-      return homepageLink(input.airlineId);
+      const fallback = homepageLink(input.airlineId);
+      return {
+        ...fallback,
+        note: "Předvyplněný odkaz je označený jako nefunkční, otevírá se pouze web aerolinky.",
+      };
     }
 
     switch (input.airlineId) {

@@ -298,3 +298,50 @@ airline: {
 5. Unofficial priced results: "Neoficiální zdroj. Cena a dostupnost bez garance. Ověř u dopravce."
 6. Search-only results: "Tripwise u tohoto zdroje automaticky nezískal cenu. Ověř cenu a dostupnost ručně."
 7. Sandbox/test results: "Testovací data. Nejde o reálnou koupitelnou letenku."
+
+---
+
+## QA Workflow — How to manually test and record airline link quality
+
+### Step-by-step process
+
+1. Run: npm run dev
+2. Open http://localhost:3000
+3. Enter a test search, e.g. "Chci v červenci k moři z Prahy nebo Vídně"
+4. Scroll to "Další zdroje k ručnímu ověření"
+5. Expand "QA odkazy dopravců" (purple panel, dev-only)
+6. For each airline link:
+   - Click "Otevřít odkaz" — observe whether route/dates are prefilled
+   - Click the matching mark button: ✓ Funguje / ↩ Jen web / ⚠ Špatná trasa / ✗ Rozbitý
+   - Click "Kopírovat" next to the generated patch snippet
+   - Paste into src/lib/search/airlineLinkValidation.ts
+7. Click "Kopírovat QA souhrn" for a markdown table of all results
+
+### airlineLinkValidation.ts examples
+
+After manual-ok test:
+```typescript
+wizz: {
+  validationStatus: "manual-ok",
+  lastValidatedAt: "2026-05-29",
+  validationNote: "Manual test: search URL opened Wizz route/date form correctly for PRG → BCN.",
+},
+```
+
+After manual-broken test:
+```typescript
+vueling: {
+  validationStatus: "manual-broken",
+  lastValidatedAt: "2026-05-29",
+  validationNote: "Manual test: URL opened Vueling homepage without prefilling for PRG → BCN.",
+},
+```
+
+When validationStatus is "manual-broken": buildAirlineVerificationLink automatically falls back
+to homepage and shows note "Předvyplněný odkaz je označený jako nefunkční, otevírá se pouze web aerolinky."
+
+### QA test scenarios
+
+A) "Chci v červenci na 3-5 dní k moři do 7000 Kč, odlet Praha nebo Vídeň."
+B) "Chci na přelomu června a července na 4-6 dní k moři, odlet Praha, Vídeň nebo Bratislava."
+C) "Chci začátkem července city break z Bratislavy."
