@@ -4,7 +4,6 @@ import type { FlightSegment, ItineraryOption, OriginAirport, ProviderSearchResul
 import { skippedProviderResult, type TravelSourceAdapter } from "./baseAdapter";
 
 const farFinderBase = "https://www.ryanair.com/api/farfnd/3/oneWayFares";
-const requestTimeoutMs = 8000;
 const maxDestinationsPerOrigin = 3;
 
 // ── Ryanair API types ──────────────────────────────────────────────────────────
@@ -29,6 +28,11 @@ type RyanairFare = {
 
 type RyanairFaresResponse = {
   fares?: RyanairFare[];
+};
+
+type RyanairFetchResult = {
+  fares: RyanairFare[];
+  timedOut: boolean;
 };
 
 // ── Helpers ────────────────────────────────────────────────────────────────────
@@ -67,8 +71,9 @@ async function fetchFares(
   arrivalIata: string | undefined,
   dateFrom: string,
   dateTo: string,
+  timeoutMs: number,
   maxPriceEur?: number,
-): Promise<RyanairFare[]> {
+): Promise<RyanairFetchResult> {
   const params = new URLSearchParams({
     departureAirportIataCode: departureIata,
     language: "cs-cz",
@@ -84,7 +89,7 @@ async function fetchFares(
   if (maxPriceEur !== undefined) params.set("priceValueTo", String(Math.ceil(maxPriceEur)));
 
   const controller = new AbortController();
-  const tid = setTimeout(() => controller.abort(), requestTimeoutMs);
+  const tid = setTimeout(() => controller.abort(), timeoutMs);
 
   let response: Response;
   try {
@@ -101,7 +106,7 @@ async function fetchFares(
     clearTimeout(tid);
     if (err instanceof Error && err.name === "AbortError") {
       if (process.env.NODE_ENV !== "production") console.warn(`[ryanair-unofficial] timeout: ${departureIata}→${arrivalIata ?? "any"}`);
-      return [];
+      return { fares: [], timedOut: true };
     }
     throw err;
   }
@@ -111,11 +116,11 @@ async function fetchFares(
     if (process.env.NODE_ENV !== "production") {
       console.warn(`[ryanair-unofficial] HTTP ${response.status}: ${departureIata}→${arrivalIata ?? "any"}`);
     }
-    return [];
+    return { fares: [], timedOut: false };
   }
 
   const data = (await response.json()) as RyanairFaresResponse;
-  return (data.fares ?? []).filter((f) => !f.outbound.soldOut);
+  return { fares: (data.fares ?? []).filter((f) => !f.outbound.soldOut), timedOut: false };
 }
 
 // ── Normalization ──────────────────────────────────────────────────────────────
@@ -233,6 +238,9 @@ export class RyanairUnofficialAdapter implements TravelSourceAdapter {
     const { dateFrom, dateTo } = generateDateWindow(request);
     const minNights = request.minNights ?? 3;
     const maxNights = request.maxNights ?? 10;
+    const timeoutMs = this.env.ryanairUnofficialTimeoutMs;
+    let requestCount = 0;
+    let timeoutCount = 0;
     // Half of the budget per leg, converted from CZK to EUR at ~25 rate
     const maxPerLegEur = request.maxBudget !== undefined ? Math.ceil(request.maxBudget / 25 / 2) : undefined;
 
@@ -243,12 +251,14 @@ export class RyanairUnofficialAdapter implements TravelSourceAdapter {
     // Phase 1: outbound fares for all origins concurrently (no destination filter = all available routes)
     const outboundSettled = await Promise.allSettled(
       origins.map((origin) =>
-        fetchFares(origin, undefined, dateFrom, dateTo, maxPerLegEur).then((fares) => ({
+        fetchFares(origin, undefined, dateFrom, dateTo, timeoutMs, maxPerLegEur).then((result) => ({
           origin,
-          fares: fares.sort((a, b) => a.outbound.price.value - b.outbound.price.value).slice(0, maxDestinationsPerOrigin),
+          fares: result.fares.sort((a, b) => a.outbound.price.value - b.outbound.price.value).slice(0, maxDestinationsPerOrigin),
+          timedOut: result.timedOut,
         })),
       ),
     );
+    requestCount += origins.length;
 
     type Candidate = { origin: OriginAirport; outFare: RyanairFare; retDateFrom: string; retDateTo: string };
     const candidates: Candidate[] = [];
@@ -261,7 +271,8 @@ export class RyanairUnofficialAdapter implements TravelSourceAdapter {
         }
         continue;
       }
-      const { origin, fares } = result.value;
+      const { origin, fares, timedOut } = result.value;
+      if (timedOut) timeoutCount += 1;
       if (process.env.NODE_ENV !== "production") {
         console.info(`[ryanair-unofficial] ${origin}: ${fares.length} outbound destination(s)`);
       }
@@ -277,30 +288,37 @@ export class RyanairUnofficialAdapter implements TravelSourceAdapter {
     }
 
     if (candidates.length === 0) {
+      const timedOut = timeoutCount > 0;
       return {
         provider: this.name,
-        status: "success",
+        status: timedOut ? "timeout" : "success",
         results: [],
         warnings: [
           "Neoficiální Ryanair zdroj pro osobní použití. Dostupnost a cenu vždy ověř u dopravce.",
-          "Ryanair fare finder nevrátil žádné výsledky pro zadané podmínky.",
+          timedOut
+            ? `Ryanair nestihl odpovědět do ${Math.round(timeoutMs / 1000)} s. Zobrazujeme ostatní zdroje.`
+            : "Ryanair fare finder nevrátil žádné výsledky pro zadané podmínky.",
         ],
+        requestCount,
+        timeoutCount,
       };
     }
 
     // Phase 2: return fares for all candidates concurrently
     const returnSettled = await Promise.allSettled(
       candidates.map(({ outFare, origin, retDateFrom, retDateTo }) =>
-        fetchFares(outFare.outbound.arrivalAirport.iataCode, origin, retDateFrom, retDateTo, maxPerLegEur),
+        fetchFares(outFare.outbound.arrivalAirport.iataCode, origin, retDateFrom, retDateTo, timeoutMs, maxPerLegEur),
       ),
     );
+    requestCount += candidates.length;
 
     const allOffers: ItineraryOption[] = [];
 
     for (let i = 0; i < returnSettled.length; i++) {
       const retResult = returnSettled[i];
       if (retResult.status === "rejected") continue;
-      const retFares = retResult.value;
+      if (retResult.value.timedOut) timeoutCount += 1;
+      const retFares = retResult.value.fares;
       if (retFares.length === 0) continue;
 
       const cheapestReturn = retFares.sort((a, b) => a.outbound.price.value - b.outbound.price.value)[0];
@@ -320,15 +338,22 @@ export class RyanairUnofficialAdapter implements TravelSourceAdapter {
     }
 
     const warnings = ["Neoficiální Ryanair zdroj pro osobní použití. Dostupnost a cenu vždy ověř u dopravce."];
+    if (timeoutCount > 0 && allOffers.length === 0) {
+      warnings.push(`Ryanair nestihl odpovědět do ${Math.round(timeoutMs / 1000)} s. Zobrazujeme ostatní zdroje.`);
+    } else if (timeoutCount > 0) {
+      warnings.push(`Část Ryanair dotazů nestihla odpovědět do ${Math.round(timeoutMs / 1000)} s. Výsledky mohou být neúplné.`);
+    }
     if (allOffers.length === 0) {
       warnings.push("Ryanair fare finder nevrátil žádné výsledky — možná nemá přímé lety z vybraných letišť nebo chybí zpáteční spoj.");
     }
 
     return {
       provider: this.name,
-      status: "success",
+      status: timeoutCount > 0 && allOffers.length === 0 ? "timeout" : "success",
       results: allOffers,
       warnings,
+      requestCount,
+      timeoutCount,
     };
   }
 }

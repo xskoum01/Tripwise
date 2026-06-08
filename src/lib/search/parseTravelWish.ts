@@ -1,4 +1,4 @@
-import type { DatePrecision, DestinationMode, OriginAirport, TravelSearchRequest } from "./types";
+import type { BudgetType, DatePrecision, DestinationMode, OriginAirport, TravelSearchRequest } from "./types";
 
 export const defaultSearchRequest: TravelSearchRequest = {
   wish: "",
@@ -293,6 +293,28 @@ function inferWeatherPreference(text: string): string | undefined {
   return undefined;
 }
 
+function inferBudgetType(text: string): BudgetType {
+  // Total trip budget signals
+  if (/\bvylet\b.*\bcelkem\b/.test(text)) return "total";
+  if (/\bcelkem\b.*\bvylet\b/.test(text)) return "total";
+  if (/\b(?:do|max)\s*[0-9][0-9\s.]*\s*(?:kc|kč)?\s*celkem\b/.test(text)) return "total";
+  if (/\bcellkove\b/.test(text)) return "total";
+  if (/\bcelkove\b/.test(text)) return "total";
+  if (/\bse\s+vsim\b/.test(text)) return "total";
+  if (/\bvcetne\s+(?:ubytovani|vsaho|vsech)\b/.test(text)) return "total";
+  if (/\bcelkovy\s+rozpocet\b/.test(text)) return "total";
+  if (/\btrip\s+(?:do|za|celkem)\b/.test(text)) return "total";
+
+  // Flight budget signals
+  if (/\bletenkv?\b/.test(text)) return "flight";
+  if (/\bletenka\b/.test(text)) return "flight";
+  if (/\bzpat[ea]cni\s+letenk/.test(text)) return "flight";
+  if (/\blet\s+(?:do|za|max)\b/.test(text)) return "flight";
+
+  // Default: treat plain "do X Kč" as flight budget
+  return "flight";
+}
+
 export function parseTravelWish(wish: string, base: Partial<TravelSearchRequest> = {}): TravelSearchRequest {
   const text = normalizeText(wish);
   const budgetMatch = text.match(/(?:do|max)\s*([0-9][0-9\s.]*)/);
@@ -302,6 +324,7 @@ export function parseTravelWish(wish: string, base: Partial<TravelSearchRequest>
   const destinationMode = inferDestinationMode(text);
   const minTemperatureC = inferTemperature(text);
   const weatherPreference = inferWeatherPreference(text);
+  const budgetType = inferBudgetType(text);
 
   const parsed: TravelSearchRequest = {
     ...defaultSearchRequest,
@@ -321,7 +344,15 @@ export function parseTravelWish(wish: string, base: Partial<TravelSearchRequest>
     parsed.avoidEarlyFlights = true;
   }
 
-  if (budgetMatch) parsed.maxBudget = Number(budgetMatch[1].replace(/[\s.]/g, ""));
+  if (budgetMatch) {
+    parsed.maxBudget = Number(budgetMatch[1].replace(/[\s.]/g, ""));
+    parsed.budgetType = budgetType;
+    if (budgetType === "flight") {
+      parsed.assumptions = [...(parsed.assumptions ?? []), "Rozpočet bereme jako cenu letenky. Celkový odhad výletu může být vyšší."];
+    } else if (budgetType === "total") {
+      parsed.assumptions = [...(parsed.assumptions ?? []), `Celkový rozpočet výletu: do ${parsed.maxBudget.toLocaleString("cs-CZ")} Kč (letenka + ubytování + doprava).`];
+    }
+  }
   if (origins.length > 0) parsed.origins = origins;
 
   // Apply explicit temperature first; fall back to warm-weather baseline when

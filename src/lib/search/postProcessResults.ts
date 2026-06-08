@@ -128,22 +128,32 @@ export function postProcessResults(
 ): { results: ItineraryOption[]; diagnostics: PostProcessDiagnostics } {
   const totalFromProviders = results.length;
 
-  const filteredOutCounts = { overBudget: 0, wrongOrigin: 0, wrongTripLength: 0, tooManyTransfers: 0, tooCold: 0 };
+  const filteredOutCounts = { overFlightBudget: 0, overTotalBudget: 0, wrongOrigin: 0, wrongTripLength: 0, tooManyTransfers: 0, tooCold: 0, destinationMismatch: 0 };
+  const effectiveBudgetType = request.budgetType ?? "flight";
 
-  // Hard filter pass (budget uses priceCzk, which was set before scoring)
+  // Hard filter pass
   const hardFiltered = results.filter((trip) => {
     if (!request.origins.includes(trip.origin)) {
       filteredOutCounts.wrongOrigin++;
       return false;
     }
     if (request.maxBudget !== undefined) {
-      if (trip.priceCzk === undefined) {
-        filteredOutCounts.overBudget++;
-        return false;
-      }
-      if (trip.priceCzk > request.maxBudget) {
-        filteredOutCounts.overBudget++;
-        return false;
+      if (effectiveBudgetType === "total") {
+        // Total budget: filter by total trip estimate; keep if estimate is missing (can't confirm over budget)
+        if (trip.totalTripEstimateCzk !== undefined && trip.totalTripEstimateCzk > request.maxBudget) {
+          filteredOutCounts.overTotalBudget++;
+          return false;
+        }
+      } else {
+        // Flight budget (default): filter by flight price only
+        if (trip.priceCzk === undefined) {
+          filteredOutCounts.overFlightBudget++;
+          return false;
+        }
+        if (trip.priceCzk > request.maxBudget) {
+          filteredOutCounts.overFlightBudget++;
+          return false;
+        }
       }
     }
     if (request.minNights && trip.nights < request.minNights) {
@@ -187,6 +197,7 @@ export function postProcessResults(
       displayed: limited.length,
       filteredOutCounts,
       unknownCurrencyCount,
+      budgetType: effectiveBudgetType,
     },
   };
 }

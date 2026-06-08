@@ -1,3 +1,4 @@
+import { AIRPORT_COST_PROFILES } from "./airports";
 import type { ItineraryOption } from "./types";
 
 export type TripCostEstimate = {
@@ -11,28 +12,12 @@ export type TripCostEstimate = {
   notes: string[];
 };
 
-type AirportCostProfile = {
-  airportCode: string;
-  accessCostCzk: number;
-  accessTimeMinutes: number;
-  accessNote: string;
-};
-
 type DestinationCostProfile = {
   airportCode: string;
   transferCostCzk: number;
   nightlyAccommodationEstimateCzk: number;
   localPriceLevel: "low" | "medium" | "high";
   costNote?: string;
-};
-
-const AIRPORT_COST_PROFILES: Record<string, AirportCostProfile> = {
-  PED: { airportCode: "PED", accessCostCzk: 100,  accessTimeMinutes: 20,  accessNote: "nejbližší letiště" },
-  PRG: { airportCode: "PRG", accessCostCzk: 300,  accessTimeMinutes: 90,  accessNote: "dobrá dostupnost" },
-  VIE: { airportCode: "VIE", accessCostCzk: 900,  accessTimeMinutes: 210, accessNote: "delší cesta, ale často levnější lety" },
-  BTS: { airportCode: "BTS", accessCostCzk: 800,  accessTimeMinutes: 190, accessNote: "alternativa k Vídni" },
-  BRQ: { airportCode: "BRQ", accessCostCzk: 500,  accessTimeMinutes: 120, accessNote: "regionální alternativa" },
-  OSR: { airportCode: "OSR", accessCostCzk: 700,  accessTimeMinutes: 160, accessNote: "regionální alternativa" },
 };
 
 const DESTINATION_COST_PROFILES: Record<string, DestinationCostProfile> = {

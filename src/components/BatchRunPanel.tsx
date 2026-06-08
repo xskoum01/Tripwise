@@ -205,7 +205,7 @@ export function BatchRunPanel({ searches, onComplete, onStatusChange }: BatchRun
                   </>
                 )}
                 {item.status === "done" && item.run?.bestPriceCzk === undefined && (
-                  <span className="text-ink/40">bez cenového výsledku</span>
+                  <span className="text-ink/40" title={item.run?.noPricedReason}>bez cenového výsledku</span>
                 )}
                 {item.status === "failed" && item.errorMessage && (
                   <span className="text-coral">{item.errorMessage}</span>

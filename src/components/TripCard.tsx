@@ -1,8 +1,11 @@
+import { CopyRouteButton } from "./CopyRouteButton";
 import { DuffelOfferDetail } from "./DuffelOfferDetail";
 import { ScoreBadge } from "./ScoreBadge";
 import { buildScoreSummary, buildStrengths, buildWarningSummary } from "./scoreCopy";
-import { formatDateRangeCompactCz, formatDateRangeCz, formatTripLengthCz } from "@/lib/format/date";
-import type { ItineraryOption, LinkType, OriginAirport } from "@/lib/search/types";
+import { formatDateCz, formatDateRangeCompactCz, formatDateRangeCz, formatTripLengthCz } from "@/lib/format/date";
+import type { BudgetType, ItineraryOption, LinkType, OriginAirport } from "@/lib/search/types";
+
+const IS_DEV = process.env.NODE_ENV !== "production";
 
 const linkLabels: Record<LinkType, string> = {
   exact: "Otevřít nabídku",
@@ -87,12 +90,65 @@ function TripCostBreakdown({ estimate }: { estimate: NonNullable<ItineraryOption
         )}
         {estimate.totalEstimateCzk !== undefined && (
           <li className="mt-1 border-t border-ink/10 pt-1 font-bold text-ink/80">
-            Celkem odhad: {estimate.totalEstimateCzk.toLocaleString("cs-CZ")} Kč
+            Celkem odhad výletu: {estimate.totalEstimateCzk.toLocaleString("cs-CZ")} Kč
           </li>
         )}
       </ul>
       <p className="mt-1.5 text-[10px] text-ink/40">Celková cena je orientační odhad.</p>
     </div>
+  );
+}
+
+function RyanairDetailPanel({ trip }: { trip: ItineraryOption }) {
+  const eurPrice = trip.totalPrice !== undefined ? `${trip.totalPrice.toFixed(2)} EUR` : null;
+  const czkPrice = trip.priceCzk !== undefined ? `${trip.priceCzk.toLocaleString("cs-CZ")} Kč` : null;
+
+  return (
+    <details className="mt-3 rounded-lg border border-amber-200 bg-amber-50/60 text-xs">
+      <summary className="cursor-pointer select-none px-3 py-2 font-bold text-amber-700">
+        Detaily Ryanair (neoficiální zdroj)
+      </summary>
+      <div className="grid gap-1 px-3 pb-3 pt-2 text-ink/70">
+        <p>
+          <span className="font-semibold text-ink/55">Odlet:</span>{" "}
+          {formatDateCz(trip.dates.depart)} v {trip.departureTime} &nbsp;
+          <span className="font-semibold">{trip.origin} → {trip.destinationAirportCode}</span>
+        </p>
+        <p>
+          <span className="font-semibold text-ink/55">Zpáteční:</span>{" "}
+          {formatDateCz(trip.dates.return)} v {trip.returnTime} &nbsp;
+          <span className="font-semibold">{trip.destinationAirportCode} → {trip.origin}</span>
+        </p>
+        {(eurPrice || czkPrice) && (
+          <p>
+            <span className="font-semibold text-ink/55">Cena dle fare finderů:</span>{" "}
+            {[eurPrice, czkPrice].filter(Boolean).join(" = ")}
+          </p>
+        )}
+        <p className="text-[10px] text-amber-700/80">
+          Cena je součet nejlevnějšího odletu a zpátečního spoje — nemusí jít o tutéž konkrétní kombinaci.
+          Neoficiální zdroj. Cena a dostupnost bez garance. Ověř u Ryanairu.
+        </p>
+        <div className="mt-1 flex flex-wrap items-center gap-2">
+          <span className="font-semibold text-ink/55">Ověřovací odkaz:</span>
+          <a
+            href={trip.sourceUrl}
+            target="_blank"
+            rel="noreferrer"
+            className="font-semibold text-amber-700 underline hover:text-amber-900"
+          >
+            Otevřít u Ryanairu
+          </a>
+          <CopyRouteButton text={trip.sourceUrl} />
+        </div>
+        {IS_DEV && (
+          <details className="mt-1">
+            <summary className="cursor-pointer select-none text-[10px] font-semibold text-ink/40">Dev: URL preview</summary>
+            <p className="mt-1 break-all rounded bg-white/70 p-2 text-[10px] font-mono text-ink/50">{trip.sourceUrl}</p>
+          </details>
+        )}
+      </div>
+    </details>
   );
 }
 
@@ -197,7 +253,7 @@ function WeatherNote({ trip }: { trip: ItineraryOption }) {
   return null;
 }
 
-export function TripCard({ trip, featured = false, relaxed = false }: { trip: ItineraryOption; featured?: boolean; relaxed?: boolean }) {
+export function TripCard({ trip, featured = false, relaxed = false, budgetType }: { trip: ItineraryOption; featured?: boolean; relaxed?: boolean; budgetType?: BudgetType }) {
   const strengths = buildStrengths(trip);
   const warning = buildWarningSummary(trip);
   const linkType = trip.linkType ?? "fallback";
@@ -248,16 +304,21 @@ export function TripCard({ trip, featured = false, relaxed = false }: { trip: It
       <div className="mt-5 grid gap-3 text-sm sm:grid-cols-2 lg:grid-cols-6">
         <Metric label="Termín" value={compactDateRange} subtext={tripLength} strong />
         <div className="rounded-lg border border-ink/10 bg-slate-50 p-3">
-          <span className="block text-xs font-semibold text-ink/55">Cena celkem</span>
+          <span className="block text-xs font-semibold text-ink/55">Letenka</span>
           <span className="mt-1 block text-lg font-black text-ink">{price}</span>
-          {totalTripEstimateCzk !== undefined && (
-            <span className="mt-0.5 block text-xs font-semibold text-sea/80">
-              Celkem odhad: {totalTripEstimateCzk.toLocaleString("cs-CZ")} Kč
-            </span>
-          )}
           <span className="mt-1 block text-xs font-semibold text-ink/50">
             {originalPrice ?? priceLabels[trip.priceStatus]}
           </span>
+          {totalTripEstimateCzk !== undefined && (
+            <span className={`mt-1 block text-xs font-semibold ${(budgetType ?? "flight") === "total" ? "text-sea/80" : "text-ink/55"}`}>
+              Celkem odhad výletu: {totalTripEstimateCzk.toLocaleString("cs-CZ")} Kč
+            </span>
+          )}
+          {totalTripEstimateCzk !== undefined && (budgetType ?? "flight") === "flight" && (
+            <span className="mt-0.5 block text-[10px] text-ink/40">
+              Celkový odhad je orientační, není to tvrdý limit.
+            </span>
+          )}
           {trip.tripCostEstimate && (
             <TripCostBreakdown estimate={trip.tripCostEstimate} />
           )}
@@ -275,6 +336,8 @@ export function TripCard({ trip, featured = false, relaxed = false }: { trip: It
         <Metric label="Zdroj" value={`${trip.source}`} subtext={trip.provider} />
         <Metric label="Trasa" value={trip.direct ? "Přímý let" : `Přestup ${trip.layoverHours} h`} />
       </div>
+
+      {trip.provider === "ryanair-unofficial" && <RyanairDetailPanel trip={trip} />}
 
       <div className="mt-5 grid gap-3 md:grid-cols-[minmax(0,1fr)_minmax(220px,0.55fr)]">
         <div className={`rounded-lg p-4 ${relaxed ? "bg-coral/10" : "bg-mint/70"}`}>

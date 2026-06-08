@@ -70,6 +70,19 @@ export type ProviderStatus = {
   };
 };
 
+export type ProviderRunStatus = {
+  provider: ProviderName;
+  status: "success" | "skipped" | "error" | "timeout";
+  durationMs: number;
+  resultCount: number;
+  warningCount: number;
+  errorMessage?: string;
+  requestCount?: number;
+  timeoutCount?: number;
+};
+
+export type BudgetType = "flight" | "total" | "unknown";
+
 export type TravelSearchRequest = {
   wish: string;
   origins: OriginAirport[];
@@ -80,6 +93,7 @@ export type TravelSearchRequest = {
   dateLabel?: string;
   minTemperatureC?: number;
   maxBudget?: number;
+  budgetType?: BudgetType;
   minNights?: number;
   maxNights?: number;
   baggage: BaggageOption;
@@ -175,10 +189,13 @@ export type ItineraryOption = {
 
 export type ProviderSearchResult = {
   provider: ProviderName;
-  status: "success" | "skipped" | "error";
+  status: "success" | "skipped" | "error" | "timeout";
   results: ItineraryOption[];
   warnings: string[];
   errorMessage?: string;
+  durationMs?: number;
+  requestCount?: number;
+  timeoutCount?: number;
 };
 
 export type PostProcessDiagnostics = {
@@ -188,13 +205,16 @@ export type PostProcessDiagnostics = {
   afterDominated: number;
   displayed: number;
   filteredOutCounts: {
-    overBudget: number;
+    overFlightBudget: number;
+    overTotalBudget: number;
     wrongOrigin: number;
     wrongTripLength: number;
     tooManyTransfers: number;
     tooCold: number;
+    destinationMismatch: number;
   };
   unknownCurrencyCount: number;
+  budgetType?: BudgetType;
 };
 
 export type SearchResponse = {
@@ -206,6 +226,7 @@ export type SearchResponse = {
   results: ItineraryOption[];
   noActiveFlightProviders: boolean;
   providerStatuses: ProviderStatus[];
+  providerRunStatuses: ProviderRunStatus[];
   providerWarnings: string[];
   assumptions: string[];
   unsupportedConstraints: string[];
@@ -219,6 +240,7 @@ export type SearchResponse = {
   postProcessDiagnostics?: PostProcessDiagnostics;
   sandboxResults: ItineraryOption[];
   searchOnlyResults: ItineraryOption[];
+  offTopicResults: ItineraryOption[];
   weatherDiagnostics?: {
     enrichedCount: number;
     forecastCount: number;
@@ -229,5 +251,26 @@ export type SearchResponse = {
   };
   tripCostDiagnostics?: {
     estimatedCount: number;
+  };
+  destinationDiagnostics?: {
+    intent: string;
+    exactMatchCount: number;
+    offTopicCount: number;
+    unknownDestinationCount: number;
+    mismatchCount: number;
+  };
+  earlyDepartureCount?: number;
+  ryanairDiagnostics?: {
+    resultCount: number;
+    withVerificationUrl: number;
+    earlyDepartureCount: number;
+    offTopicCount: number;
+    requestCount: number;
+    timeoutCount: number;
+  };
+  searchDiagnostics?: {
+    pricedResultCount: number;
+    searchOnlyCandidateCount: number;
+    finalDisplayedResultCount: number;
   };
 };

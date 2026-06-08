@@ -1,4 +1,5 @@
 import { getServerEnv, type ServerEnv } from "@/lib/config/env";
+import { getDestinationModes } from "@/lib/search/destinations";
 import { getProviderStatuses } from "@/lib/providers/status";
 import { enrichWeather } from "@/lib/weather/openMeteoService";
 import { DuffelAdapter } from "./adapters/duffelAdapter";
@@ -15,7 +16,7 @@ import { normalizeCurrency, postProcessResults } from "./postProcessResults";
 import { buildProviderLink } from "./providerLinks";
 import { scoreItinerary } from "./scoring";
 import { estimateTripTotalCost } from "@/lib/search/tripCost";
-import type { ItineraryOption, LinkType, ProviderSearchResult, SearchResponse, TravelSearchRequest } from "./types";
+import type { ItineraryOption, LinkType, ProviderRunStatus, ProviderSearchResult, SearchResponse, TravelSearchRequest } from "./types";
 
 const providerTimeoutMs = 8000;
 
@@ -69,17 +70,51 @@ function isInDateRange(trip: ItineraryOption, request: TravelSearchRequest) {
 
 function matchesDestinationMode(trip: ItineraryOption, request: TravelSearchRequest) {
   if (request.destinationMode === "any") return true;
-  if (request.destinationMode === "warm") return (trip.expectedTemperatureC ?? 0) >= (request.minTemperatureC ?? 18);
-  return trip.destinationMode === request.destinationMode;
+
+  // Use the registry as the authoritative source — never trust the adapter-assigned trip.destinationMode
+  const registeredModes = getDestinationModes(trip.destinationAirportCode);
+
+  if (request.destinationMode === "warm") {
+    // For unknown destinations, fall back to temperature check only
+    if (registeredModes.length > 0 && !registeredModes.includes("warm") && !registeredModes.includes("sea")) {
+      return false; // known non-warm/non-sea destination
+    }
+    return (trip.expectedTemperatureC ?? 0) >= (request.minTemperatureC ?? 18);
+  }
+
+  // For unknown destinations (not in registry): reject from sea/cityBreak exact matches
+  if (registeredModes.length === 0) return false;
+
+  return registeredModes.includes(request.destinationMode);
+}
+
+function withinBudget(trip: ItineraryOption, request: TravelSearchRequest): boolean {
+  if (request.maxBudget === undefined) return true;
+  if ((request.budgetType ?? "flight") === "total") {
+    if (trip.totalTripEstimateCzk === undefined) return true; // estimate missing → keep
+    return trip.totalTripEstimateCzk <= request.maxBudget;
+  }
+  // flight budget
+  if (trip.priceCzk === undefined) return false; // unknown currency → strict
+  return trip.priceCzk <= request.maxBudget;
+}
+
+// Checks all hard constraints except destination mode — used to identify off-topic cheap results.
+function matchesExceptDestinationMode(trip: ItineraryOption, request: TravelSearchRequest) {
+  if (!request.origins.includes(trip.origin)) return false;
+  if (!isInDateRange(trip, request)) return false;
+  if (!withinBudget(trip, request)) return false;
+  if (request.minNights && trip.nights < request.minNights) return false;
+  if (request.maxNights && trip.nights > request.maxNights) return false;
+  if (request.directOnly && !trip.direct) return false;
+  if (request.weekendOnly && trip.weekendFit < 75) return false;
+  return true;
 }
 
 function matchesHardConstraints(trip: ItineraryOption, request: TravelSearchRequest) {
   if (!request.origins.includes(trip.origin)) return false;
   if (!isInDateRange(trip, request)) return false;
-  if (request.maxBudget !== undefined) {
-    if (trip.priceCzk === undefined) return false; // unknown currency → strict
-    if (trip.priceCzk > request.maxBudget) return false;
-  }
+  if (!withinBudget(trip, request)) return false;
   if (request.minNights && trip.nights < request.minNights) return false;
   if (request.maxNights && trip.nights > request.maxNights) return false;
   if (!matchesDestinationMode(trip, request)) return false;
@@ -93,10 +128,7 @@ function relaxationReasons(trip: ItineraryOption, request: TravelSearchRequest) 
   const reasons: string[] = [];
   if (!request.origins.includes(trip.origin)) reasons.push(`neodlétá z ${request.origins.join(" / ")}, ale z ${trip.origin}`);
   if (!isInDateRange(trip, request)) reasons.push("není v požadovaném termínu");
-  if (request.maxBudget !== undefined) {
-    const price = trip.priceCzk ?? trip.totalPrice;
-    if (price !== undefined && price > request.maxBudget) reasons.push("nemá potvrzenou cenu v rozpočtu");
-  }
+  if (!withinBudget(trip, request)) reasons.push("nemá potvrzenou cenu v rozpočtu");
   if (request.minNights && trip.nights < request.minNights) reasons.push("je kratší než požadovaná délka");
   if (request.maxNights && trip.nights > request.maxNights) reasons.push("je delší než požadovaná délka");
   if (!matchesDestinationMode(trip, request)) reasons.push("má jiný typ destinace");
@@ -105,14 +137,23 @@ function relaxationReasons(trip: ItineraryOption, request: TravelSearchRequest) 
   return reasons;
 }
 
+function relaxedBudgetOk(trip: ItineraryOption, request: TravelSearchRequest): boolean {
+  if (request.maxBudget === undefined) return true;
+  const relaxedLimit = request.maxBudget * 1.25;
+  if ((request.budgetType ?? "flight") === "total") {
+    if (trip.totalTripEstimateCzk === undefined) return true;
+    return trip.totalTripEstimateCzk <= relaxedLimit;
+  }
+  const price = trip.priceCzk ?? trip.totalPrice;
+  if (price === undefined) return true;
+  return price <= relaxedLimit;
+}
+
 function relaxedCandidate(trip: ItineraryOption, request: TravelSearchRequest) {
   if (!isInDateRange(trip, request)) return false;
   if (!matchesDestinationMode(trip, request)) return false;
   if (request.minTemperatureC && (trip.expectedTemperatureC ?? 0) < request.minTemperatureC - 3) return false;
-  if (request.maxBudget !== undefined) {
-    const price = trip.priceCzk ?? trip.totalPrice;
-    if (price !== undefined && price > request.maxBudget * 1.25) return false;
-  }
+  if (!relaxedBudgetOk(trip, request)) return false;
   if (request.minNights && trip.nights < Math.max(1, request.minNights - 1)) return false;
   if (request.maxNights && trip.nights > request.maxNights + 1) return false;
   return true;
@@ -131,10 +172,7 @@ function buildRelaxationMessages(request: TravelSearchRequest, relaxedResults: I
     messages.push("Rozšířili jsme teplotní limit.");
   }
   if (request.maxBudget !== undefined) {
-    const overBudget = relaxedResults.some((trip) => {
-      const price = trip.priceCzk ?? trip.totalPrice;
-      return price !== undefined && price > request.maxBudget!;
-    });
+    const overBudget = relaxedResults.some((trip) => !withinBudget(trip, request));
     if (overBudget) messages.push("Rozšířili jsme rozpočet pro nejbližší alternativy.");
   }
   return messages;
@@ -187,7 +225,12 @@ function dedupeItineraries(results: ItineraryOption[]) {
   return [...byKey.values()];
 }
 
-async function runAdapter(adapter: TravelSourceAdapter, request: TravelSearchRequest): Promise<ProviderSearchResult> {
+function timeoutMsForAdapter(adapter: TravelSourceAdapter, env: ServerEnv) {
+  return adapter.name === "ryanair-unofficial" ? env.ryanairUnofficialTimeoutMs : providerTimeoutMs;
+}
+
+async function runAdapter(adapter: TravelSourceAdapter, request: TravelSearchRequest, env: ServerEnv): Promise<ProviderSearchResult> {
+  const startedAt = Date.now();
   try {
     if (!adapter.isConfigured()) {
       return {
@@ -195,34 +238,59 @@ async function runAdapter(adapter: TravelSourceAdapter, request: TravelSearchReq
         status: "skipped",
         results: [],
         warnings: [unconfiguredProviderWarnings[adapter.name] ?? `${adapter.name} is not configured.`],
+        durationMs: Date.now() - startedAt,
       };
     }
 
+    const timeoutMs = timeoutMsForAdapter(adapter, env);
     const timeout = new Promise<ProviderSearchResult>((resolve) => {
       setTimeout(
         () =>
           resolve({
             provider: adapter.name,
-            status: "error",
+            status: "timeout",
             results: [],
-            warnings: [`${adapter.name} timed out after ${providerTimeoutMs} ms.`],
+            warnings: [
+              adapter.name === "ryanair-unofficial"
+                ? `Ryanair nestihl odpovědět do ${Math.round(timeoutMs / 1000)} s. Zobrazujeme ostatní zdroje.`
+                : `${adapter.name} timed out after ${timeoutMs} ms.`,
+            ],
             errorMessage: "Provider timeout",
+            durationMs: Date.now() - startedAt,
+            timeoutCount: adapter.name === "ryanair-unofficial" ? 1 : undefined,
           }),
-        providerTimeoutMs,
+        timeoutMs,
       );
     });
 
-    return await Promise.race([adapter.searchTrips(request), timeout]);
+    const result = await Promise.race([adapter.searchTrips(request), timeout]);
+    return {
+      ...result,
+      durationMs: result.durationMs ?? Date.now() - startedAt,
+    };
   } catch (error) {
-    return errorProviderResult(adapter.name, error);
+    return {
+      ...errorProviderResult(adapter.name, error),
+      durationMs: Date.now() - startedAt,
+    };
   }
 }
 
 export async function searchTrips(input: Partial<TravelSearchRequest> & { wish: string }): Promise<SearchResponse> {
   const env = getServerEnv();
   const parsedRequest = parseTravelWish(input.wish, input);
-  const adapterResults = await Promise.all(buildAdapters(env).map((adapter) => runAdapter(adapter, parsedRequest)));
+  const adapterResults = await Promise.all(buildAdapters(env).map((adapter) => runAdapter(adapter, parsedRequest, env)));
   const providerWarnings = adapterResults.flatMap((result) => result.warnings.map((warning) => `${result.provider}: ${warning}`));
+  const providerRunStatuses: ProviderRunStatus[] = adapterResults.map((result) => ({
+    provider: result.provider,
+    status: result.status,
+    durationMs: result.durationMs ?? 0,
+    resultCount: result.results.length,
+    warningCount: result.warnings.length,
+    errorMessage: result.errorMessage,
+    requestCount: result.requestCount,
+    timeoutCount: result.timeoutCount,
+  }));
   const providerStatuses = getProviderStatuses();
   const statusByName = new Map(providerStatuses.map((provider) => [provider.name, provider] as const));
   const noActiveFlightProviders =
@@ -274,6 +342,22 @@ export async function searchTrips(input: Partial<TravelSearchRequest> & { wish: 
     estimatedCount: scoredResults.filter((t) => t.totalTripEstimateCzk !== undefined).length,
   };
 
+  // Destination diagnostics — computed on all scored results.
+  const timeToHour = (t: string) => { const [h, m] = t.split(":").map(Number); return h + m / 60; };
+  const earlyDepartureCount = scoredResults.filter((t) => timeToHour(t.departureTime) < 6).length;
+  const destinationDiagnostics = {
+    intent: parsedRequest.destinationMode,
+    exactMatchCount: 0, // filled after primaryResults is resolved
+    offTopicCount: 0,   // filled after offTopicResults is resolved
+    unknownDestinationCount: scoredResults.filter((t) => getDestinationModes(t.destinationAirportCode).length === 0).length,
+    mismatchCount: parsedRequest.destinationMode !== "any"
+      ? scoredResults.filter((t) => {
+          const modes = getDestinationModes(t.destinationAirportCode);
+          return modes.length > 0 && !modes.includes(parsedRequest.destinationMode);
+        }).length
+      : 0,
+  };
+
   // Separate sandbox results (Duffel test mode) from real candidates.
   // When showDuffelTestResults is false (default), sandbox results are excluded from
   // primary recommendations and placed in a separate section so they never mix with
@@ -315,6 +399,36 @@ export async function searchTrips(input: Partial<TravelSearchRequest> & { wish: 
           .sort(byScore)
           .slice(0, 5);
 
+  // Off-topic results: match budget/dates/origin/length but NOT destination mode.
+  // Only meaningful when user expressed a specific destination intent.
+  const offTopicResults =
+    parsedRequest.destinationMode !== "any"
+      ? realResults
+          .filter((trip) => !matchesHardConstraints(trip, parsedRequest) && matchesExceptDestinationMode(trip, parsedRequest))
+          .sort(byPrice)
+          .slice(0, 6)
+      : [];
+
+  // Ryanair unofficial diagnostics
+  const ryanairScored = scoredResults.filter((t) => t.provider === "ryanair-unofficial");
+  const ryanairDiagnostics = {
+    resultCount: ryanairScored.length,
+    withVerificationUrl: ryanairScored.filter((t) => t.sourceUrl.includes("select?")).length,
+    earlyDepartureCount: ryanairScored.filter((t) => {
+      const [h] = t.departureTime.split(":").map(Number);
+      return h < 6;
+    }).length,
+    offTopicCount: offTopicResults.filter((t) => t.provider === "ryanair-unofficial").length,
+    requestCount: providerRunStatuses.find((p) => p.provider === "ryanair-unofficial")?.requestCount ?? 0,
+    timeoutCount: providerRunStatuses.find((p) => p.provider === "ryanair-unofficial")?.timeoutCount ?? 0,
+  };
+
+  const searchDiagnostics = {
+    pricedResultCount: pricedAdapterResults.filter((t) => t.priceCzk !== undefined || t.totalPrice !== undefined).length,
+    searchOnlyCandidateCount: searchOnlyResults.length,
+    finalDisplayedResultCount: primaryResults.length,
+  };
+
   return {
     parsedRequest,
     appliedFilters: parsedRequest,
@@ -324,6 +438,7 @@ export async function searchTrips(input: Partial<TravelSearchRequest> & { wish: 
     results: primaryResults,
     noActiveFlightProviders,
     providerStatuses,
+    providerRunStatuses,
     providerWarnings,
     assumptions: parsedRequest.assumptions ?? [],
     unsupportedConstraints: parsedRequest.unsupportedConstraints ?? [],
@@ -332,7 +447,16 @@ export async function searchTrips(input: Partial<TravelSearchRequest> & { wish: 
     postProcessDiagnostics: diagnostics,
     sandboxResults,
     searchOnlyResults,
+    offTopicResults,
     weatherDiagnostics,
     tripCostDiagnostics,
+    destinationDiagnostics: {
+      ...destinationDiagnostics,
+      exactMatchCount: primaryResults.length,
+      offTopicCount: offTopicResults.length,
+    },
+    earlyDepartureCount,
+    ryanairDiagnostics,
+    searchDiagnostics,
   };
 }

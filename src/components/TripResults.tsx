@@ -6,7 +6,7 @@ import { ScoreBadge } from "./ScoreBadge";
 import { TripCard } from "./TripCard";
 import { buildScoreSummary, buildWarningSummary } from "./scoreCopy";
 import { formatDateCz, formatDateRangeCz, formatTripLengthCz } from "@/lib/format/date";
-import type { ItineraryOption, LinkType, PostProcessDiagnostics, SearchResponse } from "@/lib/search/types";
+import type { ItineraryOption, LinkType, PostProcessDiagnostics, ProviderRunStatus, SearchResponse } from "@/lib/search/types";
 
 const linkLabels: Record<LinkType, string> = {
   exact: "Otevřít nabídku",
@@ -140,6 +140,93 @@ function ResultsTable({ results, relaxed = false }: { results: ItineraryOption[]
 }
 
 const IS_DEV = process.env.NODE_ENV !== "production";
+
+function providerLabel(provider: string) {
+  const labels: Record<string, string> = {
+    "ryanair-unofficial": "Ryanair",
+    duffel: "Duffel",
+    "airline-search-link": "Search-only odkazy",
+    kiwi: "Kiwi",
+    "skyscanner-live": "Skyscanner Live",
+    "skyscanner-indicative": "Skyscanner inspirace",
+    "ryanair-deeplink": "Ryanair odkazy",
+    mock: "Mock",
+  };
+  return labels[provider] ?? provider;
+}
+
+function providerStripText(run: ProviderRunStatus, data: SearchResponse) {
+  if (run.provider === "duffel" && data.sandboxResults.length > 0) return `Duffel: sandbox skrytý (${data.sandboxResults.length})`;
+  if (run.provider === "airline-search-link") return `Search-only odkazy: ${data.searchOnlyResults.length} kandidátů`;
+  if (run.provider === "ryanair-unofficial") {
+    if (run.status === "timeout") return "Ryanair: nestihl odpovědět";
+    if (run.status === "error") return "Ryanair: zdroj dočasně neodpověděl";
+    if (run.status === "success") return run.resultCount > 0 ? `Ryanair: OK (${run.resultCount})` : "Ryanair: bez výsledku";
+  }
+  if (run.status === "skipped") return `${providerLabel(run.provider)}: vypnuto`;
+  if (run.status === "timeout") return `${providerLabel(run.provider)}: timeout`;
+  if (run.status === "error") return `${providerLabel(run.provider)}: chyba`;
+  return `${providerLabel(run.provider)}: OK`;
+}
+
+function ProviderStatusStrip({ data }: { data: SearchResponse }) {
+  const visible = data.providerRunStatuses.filter((run) =>
+    ["ryanair-unofficial", "duffel", "airline-search-link", "kiwi", "skyscanner-live", "skyscanner-indicative"].includes(run.provider),
+  );
+
+  return (
+    <div className="mt-4 flex flex-wrap gap-2">
+      {visible.map((run) => {
+        const isProblem = run.status === "timeout" || run.status === "error";
+        const isSkipped = run.status === "skipped";
+        return (
+          <span
+            key={run.provider}
+            className={`rounded-full px-3 py-1 text-xs font-bold ${
+              isProblem ? "bg-amber-100 text-amber-700" : isSkipped ? "bg-ink/5 text-ink/45" : "bg-sea/10 text-sea"
+            }`}
+            title={`${providerLabel(run.provider)} · ${run.status} · ${run.durationMs} ms`}
+          >
+            {providerStripText(run, data)}
+          </span>
+        );
+      })}
+      {data.weatherDiagnostics && (
+        <span className="rounded-full bg-sea/10 px-3 py-1 text-xs font-bold text-sea">
+          Open-Meteo: počasí doplněno ({data.weatherDiagnostics.enrichedCount})
+        </span>
+      )}
+    </div>
+  );
+}
+
+function ryanairNeedsRetry(data: SearchResponse) {
+  const run = data.providerRunStatuses.find((provider) => provider.provider === "ryanair-unofficial");
+  return run?.status === "timeout" || run?.status === "error";
+}
+
+function RyanairRetryNotice({ data, onRetry, retrying }: { data: SearchResponse; onRetry?: () => void; retrying?: boolean }) {
+  if (!ryanairNeedsRetry(data)) return null;
+
+  return (
+    <div className="rounded-lg border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-900 shadow-soft">
+      <p className="font-black">Ryanair nestihl odpovědět. Zobrazujeme ostatní zdroje.</p>
+      <div className="mt-2 flex flex-wrap items-center gap-3">
+        <p className="font-semibold text-amber-800/80">Můžeš zkusit stejné hledání znovu. Aktuální ověřovací odkazy zůstanou viditelné.</p>
+        {onRetry && (
+          <button
+            type="button"
+            onClick={onRetry}
+            disabled={retrying}
+            className="rounded-lg border border-amber-400 bg-white px-3 py-1.5 text-xs font-black text-amber-800 transition hover:bg-amber-100 disabled:cursor-not-allowed disabled:opacity-60"
+          >
+            {retrying ? "Zkouším Ryanair znovu…" : "Zkusit Ryanair znovu"}
+          </button>
+        )}
+      </div>
+    </div>
+  );
+}
 
 const linkKindBadge: Record<string, { label: string; cls: string }> = {
   search:   { label: "hledání",        cls: "bg-sea/10 text-sea" },
@@ -289,7 +376,7 @@ function SandboxSection({ results }: { results: ItineraryOption[] }) {
   );
 }
 
-export function TripResults({ data }: { data: SearchResponse }) {
+export function TripResults({ data, onRetryRyanair, ryanairRetrying }: { data: SearchResponse; onRetryRyanair?: () => void; ryanairRetrying?: boolean }) {
   const hasExact = data.exactResults.length > 0;
   const displayResults = hasExact ? data.exactResults : data.relaxedResults;
   const primaryTrip = hasExact ? data.featured.bestValue : data.relaxedResults[0];
@@ -325,7 +412,9 @@ export function TripResults({ data }: { data: SearchResponse }) {
             <FilterSummary request={data.appliedFilters} />
           </div>
 
-          <TechnicalDetails warnings={data.providerWarnings} />
+          <ProviderStatusStrip data={data} />
+          <RyanairRetryNotice data={data} onRetry={onRetryRyanair} retrying={ryanairRetrying} />
+          <TechnicalDetails data={data} warnings={data.providerWarnings} />
           <SearchOnlySection results={data.searchOnlyResults} wish={data.parsedRequest.wish} />
           <SandboxSection results={data.sandboxResults} />
         </section>
@@ -335,12 +424,22 @@ export function TripResults({ data }: { data: SearchResponse }) {
     return (
       <section className="space-y-4">
         <div className="rounded-lg border border-ink/10 bg-white p-6 shadow-soft">
-          <h2 className="text-xl font-black text-ink">Nic jsme nenašli</h2>
-          <p className="mt-2 text-sm text-ink/65">Žádný zapnutý poskytovatel nevrátil výsledek pro zadané podmínky.</p>
+          <h2 className="text-xl font-black text-ink">
+            {data.searchOnlyResults.length > 0 ? "Cenové výsledky se nepodařilo načíst" : "Nic jsme nenašli"}
+          </h2>
+          <p className="mt-2 text-sm text-ink/65">
+            {data.searchOnlyResults.length > 0
+              ? "Ryanair nebo jiné cenové zdroje aktuálně nevrátily výsledek. Níže můžeš ručně ověřit dopravce, kteří dávají pro zadanou trasu smysl."
+              : "Žádný zapnutý poskytovatel nevrátil výsledek pro zadané podmínky."}
+          </p>
           <div className="mt-4">
             <FilterSummary request={data.appliedFilters} />
           </div>
-          <TechnicalDetails warnings={data.providerWarnings} />
+          <ProviderStatusStrip data={data} />
+          <div className="mt-3">
+            <RyanairRetryNotice data={data} onRetry={onRetryRyanair} retrying={ryanairRetrying} />
+          </div>
+          <TechnicalDetails data={data} warnings={data.providerWarnings} />
         </div>
         <SearchOnlySection results={data.searchOnlyResults} wish={data.parsedRequest.wish} />
         <SandboxSection results={data.sandboxResults} />
@@ -358,17 +457,7 @@ export function TripResults({ data }: { data: SearchResponse }) {
           </div>
           <FilterSummary request={data.appliedFilters} />
         </div>
-        <div className="mt-4 flex flex-wrap gap-2">
-          {data.providerStatuses.map((provider) => (
-            <span
-              key={provider.name}
-              className={`rounded-full px-3 py-1 text-xs font-bold ${provider.enabled ? "bg-sea/10 text-sea" : "bg-ink/5 text-ink/50"}`}
-              title={provider.message}
-            >
-              {provider.name}: {provider.enabled ? "zapnuto" : "vypnuto"}
-            </span>
-          ))}
-        </div>
+        <ProviderStatusStrip data={data} />
       </div>
 
       {!hasExact && (
@@ -385,7 +474,8 @@ export function TripResults({ data }: { data: SearchResponse }) {
       {primaryTrip && <TripCard trip={primaryTrip} featured relaxed={!hasExact} />}
 
       {data.assumptions.length > 0 && <p className="rounded-lg bg-white/70 px-4 py-2 text-xs text-ink/55 shadow-soft">{data.assumptions.join(" ")}</p>}
-      <TechnicalDetails warnings={data.providerWarnings} />
+      <RyanairRetryNotice data={data} onRetry={onRetryRyanair} retrying={ryanairRetrying} />
+      <TechnicalDetails data={data} warnings={data.providerWarnings} />
 
       {hasExact && (
         <div className="grid gap-3 md:grid-cols-3">
@@ -427,7 +517,8 @@ function DiagnosticsLine({ diagnostics, weatherDiagnostics }: { diagnostics: Pos
         <p>Po deduplikaci: {diagnostics.afterDedup}</p>
         <p>Po odstranění dominovaných: {diagnostics.afterDominated}</p>
         <p>Zobrazeno: {diagnostics.displayed}</p>
-        {diagnostics.filteredOutCounts.overBudget > 0 && <p>Nad rozpočtem: {diagnostics.filteredOutCounts.overBudget}</p>}
+        {diagnostics.filteredOutCounts.overFlightBudget > 0 && <p>Nad rozpočtem letenky: {diagnostics.filteredOutCounts.overFlightBudget}</p>}
+        {diagnostics.filteredOutCounts.overTotalBudget > 0 && <p>Nad celkovým rozpočtem výletu: {diagnostics.filteredOutCounts.overTotalBudget}</p>}
         {diagnostics.filteredOutCounts.wrongTripLength > 0 && <p>Špatná délka pobytu: {diagnostics.filteredOutCounts.wrongTripLength}</p>}
         {diagnostics.filteredOutCounts.tooManyTransfers > 0 && <p>Příliš mnoho přestupů: {diagnostics.filteredOutCounts.tooManyTransfers}</p>}
         {diagnostics.unknownCurrencyCount > 0 && <p>Neznámá měna (odstraněno): {diagnostics.unknownCurrencyCount}</p>}
@@ -441,13 +532,25 @@ function DiagnosticsLine({ diagnostics, weatherDiagnostics }: { diagnostics: Pos
   );
 }
 
-function TechnicalDetails({ warnings }: { warnings: string[] }) {
-  if (warnings.length === 0) return null;
+function TechnicalDetails({ data, warnings }: { data: SearchResponse; warnings: string[] }) {
+  if (warnings.length === 0 && data.providerRunStatuses.length === 0) return null;
 
   return (
     <details className="rounded-lg border border-ink/10 bg-white/80 px-4 py-3 text-xs font-semibold text-ink/60 shadow-soft">
       <summary className="cursor-pointer select-none text-sm font-black text-ink/70">Zobrazit technické detaily</summary>
       <div className="mt-3 space-y-1">
+        {data.providerRunStatuses.map((run) => (
+          <p key={run.provider}>
+            {providerLabel(run.provider)}: {run.status} · {run.durationMs} ms · výsledků {run.resultCount}
+            {run.requestCount !== undefined ? ` · requestů ${run.requestCount}` : ""}
+            {run.timeoutCount !== undefined ? ` · timeoutů ${run.timeoutCount}` : ""}
+          </p>
+        ))}
+        {data.searchDiagnostics && (
+          <p>
+            Souhrn: cenové kandidáty {data.searchDiagnostics.pricedResultCount} · search-only kandidáty {data.searchDiagnostics.searchOnlyCandidateCount} · zobrazeno {data.searchDiagnostics.finalDisplayedResultCount}
+          </p>
+        )}
         {warnings.slice(0, 8).map((warning) => (
           <p key={warning}>{warning}</p>
         ))}

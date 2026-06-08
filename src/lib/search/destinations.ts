@@ -1,3 +1,4 @@
+import { CANDIDATE_DESTINATIONS } from "./routeCandidates";
 import type { DestinationMode } from "./types";
 
 export type DestinationCoords = {
@@ -71,6 +72,120 @@ export const mvpDestinations: SearchDestination[] = [
   { code: "NCE", city: "Nice", country: "Francie", modes: ["sea", "cityBreak"], aliases: ["nice", "nce"], lat: 43.66, lng: 7.21 },
   { code: "SPU", city: "Split", country: "Chorvatsko", modes: ["sea"], aliases: ["split", "chorvatsko", "spu"], lat: 43.54, lng: 16.30 },
 ];
+
+// ── Authoritative destination registry ───────────────────────────────────────
+// Maps IATA airport codes to destination modes.
+// This is the single source of truth used by matchesDestinationMode and scoring.
+// Unknown destinations (not in registry) return []: they match "any" but not sea/cityBreak.
+
+type DestinationRegistryEntry = { city: string; country: string; modes: DestinationMode[] };
+
+const CITY_ONLY_DESTINATIONS: Array<DestinationRegistryEntry & { code: string }> = [
+  // Sea / warm (not in CANDIDATE_DESTINATIONS)
+  { code: "FNC", city: "Madeira",             country: "Portugalsko",      modes: ["sea", "warm"] },
+  // Belgium
+  { code: "CRL", city: "Brusel Charleroi",      country: "Belgie",           modes: ["cityBreak"] },
+  { code: "BRU", city: "Brusel",                country: "Belgie",           modes: ["cityBreak"] },
+  // UK / Ireland
+  { code: "STN", city: "Londýn Stansted",       country: "Velká Británie",   modes: ["cityBreak"] },
+  { code: "LTN", city: "Londýn Luton",          country: "Velká Británie",   modes: ["cityBreak"] },
+  { code: "LGW", city: "Londýn Gatwick",        country: "Velká Británie",   modes: ["cityBreak"] },
+  { code: "LHR", city: "Londýn Heathrow",       country: "Velká Británie",   modes: ["cityBreak"] },
+  { code: "SEN", city: "Londýn Southend",       country: "Velká Británie",   modes: ["cityBreak"] },
+  { code: "EDI", city: "Edinburgh",             country: "Velká Británie",   modes: ["cityBreak"] },
+  { code: "GLA", city: "Glasgow",               country: "Velká Británie",   modes: ["cityBreak"] },
+  { code: "MAN", city: "Manchester",            country: "Velká Británie",   modes: ["cityBreak"] },
+  { code: "BRS", city: "Bristol",               country: "Velká Británie",   modes: ["cityBreak"] },
+  { code: "DUB", city: "Dublin",                country: "Irsko",            modes: ["cityBreak"] },
+  { code: "SNN", city: "Shannon",               country: "Irsko",            modes: ["cityBreak"] },
+  // Germany
+  { code: "HAM", city: "Hamburk",               country: "Německo",          modes: ["cityBreak"] },
+  { code: "BER", city: "Berlín",                country: "Německo",          modes: ["cityBreak"] },
+  { code: "HHN", city: "Frankfurt Hahn",        country: "Německo",          modes: ["cityBreak"] },
+  { code: "FRA", city: "Frankfurt",             country: "Německo",          modes: ["cityBreak"] },
+  { code: "MUC", city: "Mnichov",               country: "Německo",          modes: ["cityBreak"] },
+  { code: "DUS", city: "Düsseldorf",            country: "Německo",          modes: ["cityBreak"] },
+  { code: "CGN", city: "Kolín nad Rýnem",       country: "Německo",          modes: ["cityBreak"] },
+  { code: "STR", city: "Stuttgart",             country: "Německo",          modes: ["cityBreak"] },
+  { code: "NRN", city: "Weeze",                 country: "Německo",          modes: ["cityBreak"] },
+  // Netherlands
+  { code: "AMS", city: "Amsterdam",             country: "Nizozemsko",       modes: ["cityBreak"] },
+  { code: "EIN", city: "Eindhoven",             country: "Nizozemsko",       modes: ["cityBreak"] },
+  // Spain (city-only)
+  { code: "MAD", city: "Madrid",                country: "Španělsko",        modes: ["cityBreak"] },
+  { code: "GRO", city: "Girona",                country: "Španělsko",        modes: ["cityBreak"] },
+  { code: "ZAZ", city: "Zaragoza",              country: "Španělsko",        modes: ["cityBreak"] },
+  // France
+  { code: "CDG", city: "Paříž CDG",             country: "Francie",          modes: ["cityBreak"] },
+  { code: "ORY", city: "Paříž Orly",            country: "Francie",          modes: ["cityBreak"] },
+  { code: "LYS", city: "Lyon",                  country: "Francie",          modes: ["cityBreak"] },
+  { code: "BOD", city: "Bordeaux",              country: "Francie",          modes: ["cityBreak"] },
+  { code: "NTE", city: "Nantes",                country: "Francie",          modes: ["cityBreak"] },
+  { code: "MRS", city: "Marseille",             country: "Francie",          modes: ["cityBreak", "sea"] },
+  // Poland
+  { code: "POZ", city: "Poznaň",                country: "Polsko",           modes: ["cityBreak"] },
+  { code: "WRO", city: "Wroclaw",               country: "Polsko",           modes: ["cityBreak"] },
+  { code: "KRK", city: "Krakov",                country: "Polsko",           modes: ["cityBreak"] },
+  { code: "GDN", city: "Gdaňsk",                country: "Polsko",           modes: ["cityBreak"] },
+  { code: "WAW", city: "Varšava",               country: "Polsko",           modes: ["cityBreak"] },
+  { code: "WMI", city: "Varšava Modlin",        country: "Polsko",           modes: ["cityBreak"] },
+  { code: "KTW", city: "Katowice",              country: "Polsko",           modes: ["cityBreak"] },
+  { code: "LCJ", city: "Lodž",                  country: "Polsko",           modes: ["cityBreak"] },
+  // Hungary / Balkans
+  { code: "BUD", city: "Budapešť",              country: "Maďarsko",         modes: ["cityBreak"] },
+  { code: "BEG", city: "Bělehrad",              country: "Srbsko",           modes: ["cityBreak"] },
+  { code: "ZAG", city: "Záhřeb",                country: "Chorvatsko",       modes: ["cityBreak"] },
+  { code: "LJU", city: "Lublaň",                country: "Slovinsko",        modes: ["cityBreak"] },
+  // Ukraine / Baltics
+  { code: "KBP", city: "Kyjev",                 country: "Ukrajina",         modes: ["cityBreak"] },
+  { code: "VNO", city: "Vilnius",               country: "Litva",            modes: ["cityBreak"] },
+  { code: "RIX", city: "Riga",                  country: "Lotyšsko",         modes: ["cityBreak"] },
+  { code: "TLL", city: "Tallinn",               country: "Estonsko",         modes: ["cityBreak"] },
+  // Nordics
+  { code: "HEL", city: "Helsinky",              country: "Finsko",           modes: ["cityBreak"] },
+  { code: "ARN", city: "Stockholm",             country: "Švédsko",          modes: ["cityBreak"] },
+  { code: "OSL", city: "Oslo",                  country: "Norsko",           modes: ["cityBreak"] },
+  { code: "CPH", city: "Kodaň",                 country: "Dánsko",           modes: ["cityBreak"] },
+  // Switzerland
+  { code: "ZRH", city: "Curych",                country: "Švýcarsko",        modes: ["cityBreak"] },
+  { code: "GVA", city: "Ženeva",                country: "Švýcarsko",        modes: ["cityBreak"] },
+  { code: "BSL", city: "Basilej",               country: "Švýcarsko",        modes: ["cityBreak"] },
+  // Italy (city-only or borderline)
+  { code: "VCE", city: "Benátky",               country: "Itálie",           modes: ["cityBreak", "sea"] },
+  { code: "TSF", city: "Benátky Treviso",       country: "Itálie",           modes: ["cityBreak"] },
+  { code: "BLQ", city: "Bologna",               country: "Itálie",           modes: ["cityBreak"] },
+  { code: "FLR", city: "Florencie",             country: "Itálie",           modes: ["cityBreak"] },
+  { code: "PSA", city: "Pisa",                  country: "Itálie",           modes: ["cityBreak"] },
+  { code: "BRI", city: "Bari",                  country: "Itálie",           modes: ["sea", "cityBreak"] },
+  // Romania (extra)
+  { code: "CLJ", city: "Kluž",                  country: "Rumunsko",         modes: ["cityBreak"] },
+  { code: "IAS", city: "Iași",                  country: "Rumunsko",         modes: ["cityBreak"] },
+  { code: "TSR", city: "Timișoara",             country: "Rumunsko",         modes: ["cityBreak"] },
+  // Montenegro / North Macedonia coastal
+  { code: "TGD", city: "Podgorica",             country: "Černá Hora",       modes: ["cityBreak"] },
+  { code: "TIV", city: "Tivat",                 country: "Černá Hora",       modes: ["sea"] },
+];
+
+export const DESTINATION_REGISTRY = new Map<string, DestinationRegistryEntry>(
+  [
+    ...CANDIDATE_DESTINATIONS.map(({ code, city, country, modes }) => [code, { city, country, modes }] as [string, DestinationRegistryEntry]),
+    ...CITY_ONLY_DESTINATIONS.map(({ code, city, country, modes }) => [code, { city, country, modes }] as [string, DestinationRegistryEntry]),
+  ]
+);
+
+/** Returns the known destination modes for an airport code, or [] for unknown destinations. */
+export function getDestinationModes(code: string): DestinationMode[] {
+  return DESTINATION_REGISTRY.get(code)?.modes ?? [];
+}
+
+/** Returns city/country info for an airport code, or undefined if unknown. */
+export function getDestinationInfo(code: string): { city: string; country: string } | undefined {
+  const entry = DESTINATION_REGISTRY.get(code);
+  if (!entry) return undefined;
+  return { city: entry.city, country: entry.country };
+}
+
+// ── ─────────────────────────────────────────────────────────────────────────
 
 function normalize(text: string) {
   return text

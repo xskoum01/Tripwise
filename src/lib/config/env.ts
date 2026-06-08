@@ -13,6 +13,7 @@ export type ServerEnv = {
   enableMockProvider: boolean;
   openMeteoEnabled: boolean;
   enableRyanairUnofficial: boolean;
+  ryanairUnofficialTimeoutMs: number;
   allowUnofficialInProduction: boolean;
   enableAirlineSearchLinks: boolean;
 };
@@ -20,6 +21,12 @@ export type ServerEnv = {
 function enabled(value: string | undefined, defaultValue: boolean) {
   if (value === undefined) return defaultValue;
   return value.toLowerCase() === "true";
+}
+
+function positiveInt(value: string | undefined, defaultValue: number) {
+  if (value === undefined) return defaultValue;
+  const parsed = Number(value);
+  return Number.isFinite(parsed) && parsed > 0 ? Math.floor(parsed) : defaultValue;
 }
 
 // Detect Duffel token type from prefix.
@@ -71,6 +78,7 @@ export function getServerEnv(): ServerEnv {
     enableMockProvider: enabled(process.env.ENABLE_MOCK_PROVIDER, false),
     openMeteoEnabled: enabled(process.env.OPEN_METEO_ENABLED, true),
     enableRyanairUnofficial: enabled(process.env.ENABLE_RYANAIR_UNOFFICIAL_PROVIDER, false),
+    ryanairUnofficialTimeoutMs: positiveInt(process.env.RYANAIR_UNOFFICIAL_TIMEOUT_MS, 8000),
     allowUnofficialInProduction: enabled(process.env.ALLOW_UNOFFICIAL_PROVIDERS_IN_PRODUCTION, false),
     enableAirlineSearchLinks: enabled(process.env.ENABLE_AIRLINE_SEARCH_LINKS, true),
   };

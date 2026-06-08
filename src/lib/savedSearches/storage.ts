@@ -35,6 +35,7 @@ export interface SavedSearchRun {
   resultCount: number;
   pricedResultCount: number;
   searchOnlyResultCount: number;
+  noPricedReason?: string;
 }
 
 export interface SavedSearchRunComparison {

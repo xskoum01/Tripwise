@@ -29,6 +29,7 @@ export function SearchPanel() {
   const [maxBudget, setMaxBudget] = useState(7000);
   const [directOnly, setDirectOnly] = useState(false);
   const [loading, setLoading] = useState(false);
+  const [ryanairRetrying, setRyanairRetrying] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [results, setResults] = useState<SearchResponse | null>(null);
   const [editing, setEditing] = useState(false);
@@ -81,9 +82,10 @@ export function SearchPanel() {
     setOrigins((current) => (current.includes(code) ? current.filter((origin) => origin !== code) : [...current, code]));
   }
 
-  async function handleSearch(wishOverride?: string) {
+  async function handleSearch(wishOverride?: string, retryingRyanair = false) {
     setRunComparison(null);
     setLoading(true);
+    setRyanairRetrying(retryingRyanair);
     setError(null);
 
     const payload: Partial<TravelSearchRequest> & { wish: string } = {
@@ -134,7 +136,12 @@ export function SearchPanel() {
       );
     } finally {
       setLoading(false);
+      setRyanairRetrying(false);
     }
+  }
+
+  function handleRyanairRetry() {
+    void handleSearch(undefined, true);
   }
 
   return (
@@ -238,13 +245,15 @@ export function SearchPanel() {
 
       {loading && (
         <div className="rounded-lg border border-ink/10 bg-white p-6 shadow-soft">
-          <div className="h-4 w-48 animate-pulse rounded bg-ink/10" />
+          <p className="text-sm font-black text-ink/70">
+            {ryanairRetrying ? "Zkouším Ryanair znovu…" : "Hledám…"}
+          </p>
           <div className="mt-4 h-24 animate-pulse rounded bg-ink/5" />
         </div>
       )}
 
       {runComparison && <RunComparisonBanner comparison={runComparison} />}
-      {results && !loading && <TripResults data={results} />}
+      {results && <TripResults data={results} onRetryRyanair={handleRyanairRetry} ryanairRetrying={ryanairRetrying} />}
 
       <section className="mt-6">
         <h2 className="mb-3 text-sm font-bold uppercase tracking-wide text-ink/55">Uložená hledání</h2>

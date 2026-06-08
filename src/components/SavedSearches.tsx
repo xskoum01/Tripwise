@@ -228,7 +228,7 @@ export function SavedSearches({ searches, onRun, onDelete, batchStatuses }: Save
                       )}
                     </span>
                   ) : (
-                    <span className="italic text-ink/40">bez cenového výsledku</span>
+                    <span className="italic text-ink/40" title={s.priceHistory?.[0]?.noPricedReason}>bez cenového výsledku</span>
                   )}
                 </div>
 

@@ -1,5 +1,5 @@
 import type { ServerEnv } from "@/lib/config/env";
-import { resolveMvpDestinations } from "../destinations";
+import { getDestinationModes, resolveMvpDestinations } from "../destinations";
 import type { FlightSegment, ItineraryOption, OriginAirport, ProviderSearchResult, TravelSearchRequest } from "../types";
 import { errorProviderResult, skippedProviderResult, type TravelSourceAdapter } from "./baseAdapter";
 
@@ -114,8 +114,8 @@ function normalizeTrip(trip: KiwiTrip, request: TravelSearchRequest): ItineraryO
     destinationAirportCode,
     destination: trip.cityTo ?? destinationAirportCode,
     country: trip.countryTo?.name,
-    destinationType: request.destinationMode,
-    destinationMode: request.destinationMode,
+    destinationType: getDestinationModes(destinationAirportCode)[0] ?? request.destinationMode,
+    destinationMode: getDestinationModes(destinationAirportCode)[0] ?? request.destinationMode,
     dates: { depart, return: returnDate },
     month: Number(depart.slice(5, 7)),
     nights,

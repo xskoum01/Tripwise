@@ -43,7 +43,11 @@ export function FilterSummary({ request, compact = false }: { request: TravelSea
     dateSummary,
     `Typ: ${destinationLabels[request.destinationMode]}`,
     request.minTemperatureC ? `Teplota: alespoň ${request.minTemperatureC} °C` : undefined,
-    request.maxBudget ? `Rozpočet: do ${request.maxBudget.toLocaleString("cs-CZ")} Kč` : undefined,
+    request.maxBudget
+      ? (request.budgetType ?? "flight") === "total"
+        ? `Celkový rozpočet výletu: do ${request.maxBudget.toLocaleString("cs-CZ")} Kč`
+        : `Rozpočet na letenku: do ${request.maxBudget.toLocaleString("cs-CZ")} Kč`
+      : undefined,
     nightRange,
     `Pouze přímý let: ${request.directOnly ? "ano" : "ne"}`,
   ].filter(Boolean);

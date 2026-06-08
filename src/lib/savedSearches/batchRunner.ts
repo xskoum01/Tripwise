@@ -64,6 +64,7 @@ export function selectBestPricedResult(
   const allResults: ItineraryOption[] = [
     ...(response.exactResults ?? []),
     ...(response.results ?? []),
+    ...(response.searchOnlyResults ?? []),
   ];
 
   const pricedResults = allResults.filter(
@@ -147,7 +148,12 @@ export function buildSavedSearchRun(
       r.priceCzk !== undefined
   );
 
-  const searchOnlyCount = allResults.length - pricedResults.length;
+  const searchOnlyCount = response.searchOnlyResults?.length ?? 0;
+  const ryanairRun = response.providerRunStatuses?.find((provider) => provider.provider === "ryanair-unofficial");
+  const noPricedReason =
+    best === undefined && (ryanairRun?.status === "timeout" || ryanairRun?.status === "error")
+      ? "Ryanair nestihl odpovědět; bez cenového výsledku."
+      : undefined;
 
   const id =
     savedId +
@@ -179,6 +185,7 @@ export function buildSavedSearchRun(
     resultCount: allResults.length,
     pricedResultCount: pricedResults.length,
     searchOnlyResultCount: searchOnlyCount,
+    noPricedReason,
   } as SavedSearchRun & { bestWeatherLabel?: string };
 }
 
